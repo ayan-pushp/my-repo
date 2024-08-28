@@ -1,0 +1,8 @@
+1.a. Creating softlink using shell command
+
+~$ ln -s /home/ayan/demo/my-repo myprog
+~$ realpath myprog
+/home/ayan/demo/my-repo
+~$ ls -l
+rwxrwxrwx 1 ayan ayan    34 Aug 27 14:50 myprog -> /home/ayan/demo/my-repo
+

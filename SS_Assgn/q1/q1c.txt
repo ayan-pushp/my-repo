@@ -1,0 +1,20 @@
+1.c. Creating FIFO file using shell command
+
+~$ mkfifo myfiles
+
+Using ls command in one terminal
+~$ ls > myfiles
+
+Viewing result in another terminal
+~$ cat < myfiles
+demo
+Desktop
+Documents
+Downloads
+Music
+myfiles
+Pictures
+Public
+snap
+Templates
+Videos

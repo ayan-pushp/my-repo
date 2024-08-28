@@ -1,0 +1,8 @@
+1.b. Creating hardlink using shell command
+
+~$ ln /home/ayan/demo/my-repo/file2.txt /home/ayan/Desktop/mydemo.txt
+~$ cd Desktop
+~/Desktop$ ls -l
+total 4
+-rw-rw-r-- 2 ayan ayan 13 Aug 23 23:15 mydemo.txt
+
