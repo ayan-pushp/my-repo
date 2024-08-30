@@ -5,22 +5,13 @@
 #include <sys/wait.h>
 
 int main() {
-    pid_t pid;
-    pid = fork();
-    
-    if (pid < 0) {
-        perror("fork");
-        exit(EXIT_FAILURE);
+    if(!fork()){
+    printf("In child -PID =%d\n",getpid());
     }
-    
-    if (pid == 0) {
-        printf("Child process (PID: %d) exiting...\n", getpid());
-        exit(EXIT_SUCCESS);
-    } else {
-        printf("Parent process (PID: %d) sleeping...\n", getpid());
-        sleep(30);
-        printf("Parent process waking up and exiting...\n");
-        wait(NULL);
+    else{
+    printf("This is parent process -PID =%d\n",getpid());
+    sleep(30);
+    wait(0);
     }
     
     return 0;
