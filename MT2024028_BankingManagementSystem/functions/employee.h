@@ -4,6 +4,8 @@
 #include <sys/ipc.h>
 #include <sys/sem.h>
 
+#include "common.h"
+
 struct Employee loggedInEmployee;
 int semIdentifier;
 

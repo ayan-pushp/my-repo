@@ -1,15 +1,15 @@
-#include <stdio.h>      // Import for `printf` & `perror` functions
-#include <errno.h>      // Import for `errno` variable
-#include <fcntl.h>      // Import for `fcntl` functions
-#include <unistd.h>     // Import for `fork`, `fcntl`, `read`, `write`, `lseek, `_exit` functions
-#include <sys/types.h>  // Import for `socket`, `bind`, `listen`, `connect`, `fork`, `lseek` functions
-#include <sys/socket.h> // Import for `socket`, `bind`, `listen`, `connect` functions
-#include <netinet/ip.h> // Import for `sockaddr_in` stucture
-#include <string.h>     // Import for string functions
+#include <stdio.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/socket.h> 
+#include <netinet/ip.h> 
+#include <string.h> 
 
 void connection_handler(int sockFD); // Handles the read & write operations to the server
 
-void main()
+int main()
 {
     int socketFileDescriptor, connectStatus;
     struct sockaddr_in serverAddress;
@@ -22,9 +22,9 @@ void main()
         _exit(0);
     }
 
-    serverAddress.sin_family = AF_INET;                // IPv4
-    serverAddress.sin_port = htons(8080);              // Server will listen to port 8080
-    serverAddress.sin_addr.s_addr = htonl(INADDR_ANY); // Binds the socket to all interfaces
+    serverAddress.sin_family = AF_INET;
+    serverAddress.sin_port = htons(8080);
+    serverAddress.sin_addr.s_addr = htonl(INADDR_ANY);
 
     connectStatus = connect(socketFileDescriptor, (struct sockaddr *)&serverAddress, sizeof(serverAddress));
     if (connectStatus == -1)
@@ -37,18 +37,19 @@ void main()
     connection_handler(socketFileDescriptor);
 
     close(socketFileDescriptor);
+    return 0;
 }
 // Handles the read & write operations w the server
 void connection_handler(int sockFD)
 {
-    char readBuffer[1000], writeBuffer[1000]; // A buffer used for reading from / writting to the server
-    ssize_t readBytes, writeBytes;            // Number of bytes read from / written to the socket
+    char readBuffer[1000], writeBuffer[1000]; 
+    ssize_t readBytes, writeBytes; 
 
     char tempBuffer[1000];
 
     do
     {
-        bzero(readBuffer, sizeof(readBuffer)); // Empty the read buffer
+        bzero(readBuffer, sizeof(readBuffer));
         bzero(tempBuffer, sizeof(tempBuffer));
         readBytes = read(sockFD, readBuffer, sizeof(readBuffer));
         if (readBytes == -1)
@@ -69,10 +70,17 @@ void connection_handler(int sockFD)
         }
         else if (strchr(readBuffer, '$') != NULL)
         {
-            // Server sent an error message and is now closing it's end of the connection
+            // Taking back to Home menu in case of logouts or invalid login credentials
             strncpy(tempBuffer, readBuffer, strlen(readBuffer) - 2);
             printf("%s\n", tempBuffer);
-            printf("Closing the connection to the server now!\n");
+            strcpy(writeBuffer,"Taking you HOME...");
+            write(sockFD, writeBuffer, strlen(writeBuffer));
+            printf("%s\n",writeBuffer);
+        }
+        else if(strchr(readBuffer, '*') != NULL){
+            strcpy(writeBuffer, "User wants to exit...");
+            write(sockFD, writeBuffer, strlen(writeBuffer));
+            printf("%sExiting...\n",writeBuffer);
             break;
         }
         else
@@ -94,6 +102,7 @@ void connection_handler(int sockFD)
                 printf("Closing the connection to the server now!\n");
                 break;
             }
+            //continue;
         }
     } while (readBytes > 0);
 

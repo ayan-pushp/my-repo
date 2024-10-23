@@ -63,6 +63,7 @@ Step 2: Run the client program
 - Compile the client program
     ```bash
         gcc -o client client.c -I./functions -I./re
+cord-struct
     ```
 - Run the client program for every user
     ```bash

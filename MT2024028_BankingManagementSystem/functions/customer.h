@@ -1,7 +1,13 @@
 #ifndef CUSTOMER_FUNCTIONS
 #define CUSTOMER_FUNCTIONS
 
+
+#include <sys/ipc.h>
+#include <sys/sem.h>
+#include "common.h"
+
 struct Customer loggedInCustomer;
+int semIdentifier;
 
 // Function Prototypes =================================
 
@@ -41,7 +47,6 @@ bool customer_operation_handler(int connFD)
                 return false;
             }
             memset(readBuffer, 0, sizeof(readBuffer));
-
             //bzero(readBuffer, sizeof(readBuffer));
             readBytes = read(connFD, readBuffer, sizeof(readBuffer));
             if (readBytes == -1)
@@ -92,9 +97,9 @@ bool customer_operation_handler(int connFD)
     else
     {
         // CUSTOMER LOGIN FAILED
-        return false;
+      return false;
     }
-    return true;
+   return true;
 }
 
 bool get_account_details(int connFD, struct Account* customerAccount)
@@ -211,7 +216,7 @@ bool get_account_details(int connFD, struct Account* customerAccount)
 
     return true;
 }
-
+/*
 off_t find_customer_by_id(int customerFileDescriptor, int customerID) {
     struct Customer tempCustomer;
     off_t offset = 0;
@@ -228,7 +233,7 @@ off_t find_customer_by_id(int customerFileDescriptor, int customerID) {
     // If no customer is found, return -1
     return -1;
 }
-
+*/
 bool get_customer_details(int connFD, int customerID)
 {
     ssize_t readBytes, writeBytes;             // Number of bytes read from / written to the socket
@@ -276,9 +281,9 @@ bool get_customer_details(int connFD, int customerID)
         readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
         return false;
     }
-    int offset = find_customer_by_id(customerFileDescriptor, customerID);
+    //int offset = find_customer_by_id(customerFileDescriptor, customerID);
     
-    //int offset = lseek(customerFileDescriptor, customerID * sizeof(struct Customer), SEEK_SET);
+    int offset = lseek(customerFileDescriptor, customerID * sizeof(struct Customer), SEEK_SET);
     if (errno == EINVAL)
     {
         // Customer record doesn't exist

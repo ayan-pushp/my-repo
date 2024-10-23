@@ -117,7 +117,7 @@ int main(int argc, char *argv[]) {
 
     int fd;
 
-    // Read Transactions
+    /*// Read Transactions
     fd = open(argv[1], O_RDONLY);
     if (fd == -1) {
         perror("Error opening transaction file");
@@ -125,7 +125,7 @@ int main(int argc, char *argv[]) {
     }
     readTransaction(fd);
     close(fd);
-
+*/
     // Read Accounts
     fd = open(argv[2], O_RDONLY);
     if (fd == -1) {

@@ -1,6 +1,8 @@
 #ifndef ADMIN_FUNCTIONS
 #define ADMIN_FUNCTIONS
 
+#include <sys/ipc.h>
+#include <sys/sem.h>
 #include "./common.h"
 
 bool admin_operation_handler(int connFD);
@@ -85,7 +87,8 @@ int add_employee(int connFD)
         return -1;
     }
     else
-    {
+    {   //Reading last created employee's id so that new_empid= old_empid + 1
+
         int offset = lseek(employeeFileDescriptor, -sizeof(struct Employee), SEEK_END);
         if (offset == -1)
         {
@@ -173,7 +176,7 @@ int add_employee(int connFD)
     }
 
     if (readBuffer[0] == 'M' || readBuffer[0] == 'E')
-        newEmployee.gender = readBuffer[0];
+        newEmployee.role = readBuffer[0];
     else
     {
         writeBytes = write(connFD, ADMIN_ADD_EMPLOYEE_WRONG_ROLE, strlen(ADMIN_ADD_EMPLOYEE_WRONG_ROLE));
@@ -245,7 +248,7 @@ int add_employee(int connFD)
     close(employeeFileDescriptor);
 
     memset(writeBuffer, 0, sizeof(writeBuffer));
-    sprintf(writeBuffer, "%s%s-%d\n%s%s", ADMIN_ADD_EMPLOYEE_AUTOGEN_LOGIN, newEmployee.name, newEmployee.id, ADMIN_ADD_EMPLOYEE_AUTOGEN_PASSWORD, newEmployee.password);
+    sprintf(writeBuffer, "%s%s\n%s%s", ADMIN_ADD_EMPLOYEE_AUTOGEN_LOGIN, newEmployee.login, ADMIN_ADD_EMPLOYEE_AUTOGEN_PASSWORD, newEmployee.password);
     strcat(writeBuffer, "^");
     writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
     if (writeBytes == -1)
