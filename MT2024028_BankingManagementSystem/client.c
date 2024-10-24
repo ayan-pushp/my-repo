@@ -39,7 +39,7 @@ int main()
     close(socketFileDescriptor);
     return 0;
 }
-// Handles the read & write operations w the server
+// Handles the read & write operations with the server
 void connection_handler(int sockFD)
 {
     char readBuffer[1000], writeBuffer[1000]; 
@@ -74,13 +74,13 @@ void connection_handler(int sockFD)
             strncpy(tempBuffer, readBuffer, strlen(readBuffer) - 2);
             printf("%s\n", tempBuffer);
             strcpy(writeBuffer,"Taking you HOME...");
-            write(sockFD, writeBuffer, strlen(writeBuffer));
             printf("%s\n",writeBuffer);
+            write(sockFD, writeBuffer, strlen(writeBuffer));//don't remove
         }
         else if(strchr(readBuffer, '*') != NULL){
-            strcpy(writeBuffer, "User wants to exit...");
+            strcpy(writeBuffer, "User wants to Exit...");
             write(sockFD, writeBuffer, strlen(writeBuffer));
-            printf("%sExiting...\n",writeBuffer);
+            printf("%sEXITING...\n",writeBuffer);
             break;
         }
         else
@@ -102,7 +102,6 @@ void connection_handler(int sockFD)
                 printf("Closing the connection to the server now!\n");
                 break;
             }
-            //continue;
         }
     } while (readBytes > 0);
 

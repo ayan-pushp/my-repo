@@ -15,7 +15,7 @@ bool emp_operation_handler(int connFD);
 bool add_account(int connFD);
 int add_customer(int connFD,  int newAccountNumber);
 bool modify_customer_info(int connFD);
-
+bool change_emp_password(int connFD, struct Employee *emp);
 //void process_loan(int connFD);
 //void view_assgn_loan(int connFD);
 
@@ -25,13 +25,12 @@ bool modify_customer_info(int connFD);
 bool emp_operation_handler(int connFD)
 {
 
-    if (login_handler(3, connFD, &loggedInEmployee))
+    if (emp_login_handler(connFD, &loggedInEmployee))
     {
-        ssize_t writeBytes, readBytes;            // Number of bytes read from / written to the client
-        char readBuffer[1000], writeBuffer[1000]; // A buffer used for reading & writing to the client
+        ssize_t writeBytes, readBytes; 
+        char readBuffer[1000], writeBuffer[1000]; 
         memset(writeBuffer, 0, sizeof(writeBuffer));
         strcpy(writeBuffer, EMP_LOGIN_SUCCESS);
-        
         while (1)
         {
             strcat(writeBuffer, "\n");
@@ -55,9 +54,11 @@ bool emp_operation_handler(int connFD)
             switch (choice)
             {
             case 1:
+            //Add new customer
                 add_account(connFD);
                 break;
             case 2:
+            //Modify customer
                 modify_customer_info(connFD);
                 break;
             case 3:
@@ -65,11 +66,18 @@ bool emp_operation_handler(int connFD)
             case 4:
                 //view_assgn_loan(connFD);
             case 5:
-                change_password(3,connFD,&loggedInEmployee);
-                break;
-            default:
-                writeBytes = write(connFD, EMP_LOGOUT, strlen(EMP_LOGOUT));
+            //Change Password
+                if(!change_emp_password(connFD, &loggedInEmployee)) break;
+            case 6:
+            //Logout
+                memset(writeBuffer,0,sizeof(writeBuffer));
+                strcpy(writeBuffer,loggedInEmployee.name);
+                strcat(writeBuffer,LOGOUT);               
+                writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
                 return false;
+            default:
+                writeBytes = write(connFD, INVALID_MENU_CHOICE, strlen(INVALID_MENU_CHOICE));
+                read(connFD, readBuffer, sizeof(readBuffer));
             }
         }
     }
@@ -573,5 +581,147 @@ bool modify_customer_info(int connFD)
     return true;
 }
 
+bool change_emp_password(int connFD, struct Employee* ptr)
+{
+    ssize_t readBytes, writeBytes;
+    char readBuffer[1000], writeBuffer[1000], hashedPassword[1000];
+    char newPassword[1000];
+    
+    // Lock the critical section
+    // struct sembuf semOp = {0, -1, SEM_UNDO};
+    // int semopStatus = semop(semIdentifier, &semOp, 1);
+    // if (semopStatus == -1)
+    // {
+    //     perror("Error while locking critical section");
+    //     return false;
+    // }
+
+    writeBytes = write(connFD, PASSWORD_CHANGE_OLD_PASS, strlen(PASSWORD_CHANGE_OLD_PASS));
+    if (writeBytes == -1)
+    {
+        perror("Error writing PASSWORD_CHANGE_OLD_PASS message to client!");
+        //unlock_critical_section(&semOp);
+        return false;
+    }
+
+    bzero(readBuffer, sizeof(readBuffer));
+    readBytes = read(connFD, readBuffer, sizeof(readBuffer));
+    //readBuffer[strcspn(readBuffer, "\n")] = 0;
+
+    if (readBytes == -1)
+    {
+        perror("Error reading old password response from client");
+        //unlock_critical_section(&semOp);
+        return false;
+    }
+    
+    //if (strcmp(crypt(readBuffer, SALT_BAE), ptr.password) == 0)
+    if (strcmp(readBuffer, ptr->password) == 0)
+    {
+        // Password matches with old password
+        writeBytes = write(connFD, PASSWORD_CHANGE_NEW_PASS, strlen(PASSWORD_CHANGE_NEW_PASS));
+        if (writeBytes == -1)
+        {
+            perror("Error writing PASSWORD_CHANGE_NEW_PASS message to client!");
+            //unlock_critical_section(&semOp);
+            return false;
+        }
+        bzero(readBuffer, sizeof(readBuffer));
+        readBytes = read(connFD, readBuffer, sizeof(readBuffer));
+        if (readBytes == -1)
+        {
+            perror("Error reading new password response from client");
+            //unlock_critical_section(&semOp);
+            return false;
+        }
+        
+        //strcpy(newPassword, crypt(readBuffer, SALT_BAE));
+        strcpy(newPassword, readBuffer);
+
+        writeBytes = write(connFD, PASSWORD_CHANGE_NEW_PASS_RE, strlen(PASSWORD_CHANGE_NEW_PASS_RE));
+        if (writeBytes == -1)
+        {
+            perror("Error writing PASSWORD_CHANGE_NEW_PASS_RE message to client!");
+            //unlock_critical_section(&semOp);
+            return false;
+        }
+        bzero(readBuffer, sizeof(readBuffer));
+        readBytes = read(connFD, readBuffer, sizeof(readBuffer));
+        if (readBytes == -1)
+        {
+            perror("Error reading new password reenter response from client");
+            //unlock_critical_section(&semOp);
+            return false;
+        }
+
+        //if (strcmp(crypt(readBuffer, SALT_BAE), newPassword) == 0)
+        if (strcmp(readBuffer, newPassword) == 0)
+        {
+            // New & reentered passwords match
+
+            strcpy(ptr->password, newPassword);
+
+            int employeeFileDescriptor = open(EMP_FILE, O_WRONLY);
+            if (employeeFileDescriptor == -1)
+            {
+                perror("Error opening employee file!");
+                //unlock_critical_section(&semOp);
+                return false;
+            }
+
+            off_t offset = lseek(employeeFileDescriptor, ptr->id * sizeof(struct Employee), SEEK_SET);
+            if (offset == -1)
+            {
+                perror("Error seeking to the employee record!");
+                //unlock_critical_section(&semOp);
+                return false;
+            }
+
+            struct flock lock = {F_WRLCK, SEEK_SET, offset, sizeof(struct Employee), getpid()};
+            int lockingStatus = fcntl(employeeFileDescriptor, F_SETLKW, &lock);
+            if (lockingStatus == -1)
+            {
+                perror("Error obtaining write lock on employee record!");
+                //unlock_critical_section(&semOp);
+                return false;
+            }
+
+            writeBytes = write(employeeFileDescriptor, ptr, sizeof(struct Employee));
+            if (writeBytes == -1)
+            {
+                perror("Error storing updated employee password into employee record!");
+                //unlock_critical_section(&semOp);
+                return false;
+            }
+
+            lock.l_type = F_UNLCK;
+            lockingStatus = fcntl(employeeFileDescriptor, F_SETLK, &lock);
+
+            close(employeeFileDescriptor);
+
+            writeBytes = write(connFD, PASSWORD_CHANGE_SUCCESS, strlen(PASSWORD_CHANGE_SUCCESS));
+            readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
+
+            //unlock_critical_section(&semOp);
+
+            return true;
+        }
+        else
+        {
+            // New & reentered passwords don't match
+            writeBytes = write(connFD, PASSWORD_CHANGE_NEW_PASS_INVALID, strlen(PASSWORD_CHANGE_NEW_PASS_INVALID));
+            readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
+        }
+    }
+    else
+    {
+        // Password doesn't match with old password
+        writeBytes = write(connFD, PASSWORD_CHANGE_OLD_PASS_INVALID, strlen(PASSWORD_CHANGE_OLD_PASS_INVALID));
+        readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
+    }
+
+    //unlock_critical_section(&semOp);
+    return false;
+}
 
 #endif

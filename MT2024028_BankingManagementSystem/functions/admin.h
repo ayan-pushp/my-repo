@@ -6,10 +6,8 @@
 #include "./common.h"
 
 bool admin_operation_handler(int connFD);
-bool add_account(int connFD);
 int add_employee(int connFD);
 bool modify_emp_info(int connFD);
-//bool modify_user_role(int connFD);
 
 bool admin_operation_handler(int connFD)
 {
@@ -43,20 +41,21 @@ bool admin_operation_handler(int connFD)
             switch (choice)
             {
             case 1:
+                //Add new Employee
                 add_employee(connFD);
                 break;
             case 2:
+                //Modify Eployee details
                 modify_emp_info(connFD);
                 break;
-            case 3: 
-                //manage_user_roles(connFD);
-                break;
-            case 4:
-                //change_password
-                break;
-            default:
+            case 3:
+                //Logout
                 writeBytes = write(connFD, ADMIN_LOGOUT, strlen(ADMIN_LOGOUT));
                 return false;
+                break;
+            default:
+                writeBytes = write(connFD, INVALID_MENU_CHOICE, strlen(INVALID_MENU_CHOICE));
+                read(connFD, readBuffer, sizeof(readBuffer));
             }
         }
     }
@@ -155,7 +154,7 @@ int add_employee(int connFD)
         newEmployee.gender = readBuffer[0];
     else
     {
-        writeBytes = write(connFD, ADMIN_ADD_EMPLOYEE_WRONG_GENDER, strlen(ADMIN_ADD_EMPLOYEE_WRONG_GENDER));
+        writeBytes = write(connFD, INVALID_MENU_CHOICE, strlen(INVALID_MENU_CHOICE));
         readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
         return false;
     }
@@ -179,7 +178,7 @@ int add_employee(int connFD)
         newEmployee.role = readBuffer[0];
     else
     {
-        writeBytes = write(connFD, ADMIN_ADD_EMPLOYEE_WRONG_ROLE, strlen(ADMIN_ADD_EMPLOYEE_WRONG_ROLE));
+        writeBytes = write(connFD, INVALID_MENU_CHOICE, strlen(INVALID_MENU_CHOICE));
         readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
         return false;
     }
@@ -227,7 +226,7 @@ int add_employee(int connFD)
     char hashedPassword[1000];
     //strcpy(hashedPassword, crypt(AUTOGEN_PASSWORD, SALT_BAE));
     strcpy(hashedPassword, EMP_AUTOGEN_PASSWORD);
-    char idStr[5]; // Enough space for an integer as a string
+    char idStr[5];
     snprintf(idStr, sizeof(idStr), "%d", newEmployee.id); // Convert id to string
     strcat(hashedPassword, idStr);
     strcpy(newEmployee.password, hashedPassword);
@@ -858,10 +857,27 @@ bool modify_emp_info(int connFD)
         }
         employee.gender = readBuffer[0];
         break;
+    case 4:
+        writeBytes = write(connFD, ADMIN_MOD_EMPLOYEE_NEW_ROLE, strlen(ADMIN_MOD_EMPLOYEE_NEW_ROLE));
+        if (writeBytes == -1)
+        {
+            perror("Error while writing ADMIN_MOD_EMPLOYEE_NEW_ROLE message to client!");
+            return false;
+        }
+        readBytes = read(connFD, &readBuffer, sizeof(readBuffer));
+        if (readBytes == -1)
+        {
+            perror("Error while getting response for employee's new role from client!");
+            return false;
+        }
+        employee.role = readBuffer[0];
+        break;
     default:
-        memset(writeBuffer, 0, sizeof(writeBuffer));
-        strcpy(writeBuffer, INVALID_MENU_CHOICE);
-        writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
+        //memset(writeBuffer, 0, sizeof(writeBuffer));
+        //strcpy(writeBuffer, INVALID_MENU_CHOICE);
+        //writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
+        writeBytes = write(connFD, INVALID_MENU_CHOICE, strlen(INVALID_MENU_CHOICE));
+       
         if (writeBytes == -1)
         {
             perror("Error while writing INVALID_MENU_CHOICE message to client!");

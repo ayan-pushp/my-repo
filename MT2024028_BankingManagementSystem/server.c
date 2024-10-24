@@ -103,14 +103,17 @@ int connection_handler(int connectionFileDescriptor)
             case 1:
                 // Customer Handler
                 customer_operation_handler(connectionFileDescriptor);
+                home=1;
                 break;
             case 2:
                 // Admin Handler
                 admin_operation_handler(connectionFileDescriptor);
+                home=1;
                 break;
             case 3:
                 // Employee Handler
                 emp_operation_handler(connectionFileDescriptor);
+                home=1;
                 break;
             case 4:
                 // Manager Handler
@@ -126,6 +129,7 @@ int connection_handler(int connectionFileDescriptor)
                      break;
                 }
             }
+                
                 read(connectionFileDescriptor, readBuffer, sizeof(readBuffer));
             }
         }

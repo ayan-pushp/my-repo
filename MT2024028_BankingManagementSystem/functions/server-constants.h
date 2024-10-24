@@ -38,7 +38,7 @@
 #define ADMIN_LOGIN_SUCCESS "Welcome ADMIN!"
 
 // ADMIN MENU
-#define ADMIN_MENU "1. Add Employee\n2. Modify Employee Details\n3. Manage User Roles\n4. Change Password\nPress any other key to logout"
+#define ADMIN_MENU "1. Add New Employee\n2. Modify Employee Details\n3. Logout\nPlease enter your choice"
 // ADD EMPLOYEE
 #define ADMIN_ADD_EMPLOYEE "Enter details for the employee\n"
 #define ADMIN_ADD_EMPLOYEE_NAME "Employee Name?"
@@ -48,17 +48,15 @@
 #define ADMIN_ADD_EMPLOYEE_AUTOGEN_LOGIN "Login ID for the employee is : "
 #define EMP_AUTOGEN_PASSWORD "epass" // append to end of next string macro
 #define ADMIN_ADD_EMPLOYEE_AUTOGEN_PASSWORD "Password for the employee is : "
-#define ADMIN_ADD_EMPLOYEE_WRONG_GENDER "Invalid choice!\nRedirecting to main menu!^"
-#define ADMIN_ADD_EMPLOYEE_WRONG_ROLE "Invalid choice!\nRedirecting to main menu!^"
 
 // MODIFY EMPLOYEE INFO
 #define ADMIN_MOD_EMPLOYEE_ID "Enter the Employee ID to edit"
-#define ADMIN_MOD_EMPLOYEE_MENU "What to modify?\nPlease select: 1. Name 2. Age 3. Gender \nPress any other key to cancel"
+#define ADMIN_MOD_EMPLOYEE_MENU "What to modify?\nPlease select: 1. Name 2. Age 3. Gender 4. Role\nPress any other key to cancel"
 #define ADMIN_MOD_EMPLOYEE_NEW_NAME "New name?"
 #define ADMIN_MOD_EMPLOYEE_NEW_GENDER "New gender?"
 #define ADMIN_MOD_EMPLOYEE_NEW_AGE "New age?"
+#define ADMIN_MOD_EMPLOYEE_NEW_ROLE "New Role?\n(E for Employee or M for Manager)"
 #define ADMIN_MOD_EMPLOYEE_SUCCESS "Successfully modified!\nRedirecting to main menu!^"
-#define ADMIN_MOD_EMPLOYEE_ROLE "New Role?\n(E for Employee or M for Manager)"
 
 #define ADMIN_LOGOUT "Logging you out ADMIN...!$"
 
@@ -99,7 +97,7 @@
 #define EMP_LOGIN_SUCCESS "Welcome! Enter your choice:"
 
 // EMP MENU
-#define EMP_MENU "1. Add Customer\n2. Modify Customer Details\n3. Process Loan\n4. View Assigned Loan\n5. Change Password\nPress any other key to logout"
+#define EMP_MENU "1. Add New Customer\n2. Modify Customer Details\n3. Process Loan\n4. View Assigned Loan\n5. Change Password\n6. Logout\nPlease enter your choice"
 
 // ADD CUSTOMER
 #define EMP_ADD_CUSTOMER "Enter the details of the customer\n"
@@ -128,7 +126,7 @@
 
 #define EMP_MOD_CUSTOMER_SUCCESS "Successfully modified customer!\nRedirecting to main menu...!^"
 
-#define EMP_LOGOUT "Logging you out EMPLOYEE...!$"
+#define LOGOUT ", logging you out...!$"
 
 // ====================================================
 

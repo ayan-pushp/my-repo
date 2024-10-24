@@ -1,15 +1,15 @@
 #ifndef COMMON_FUNCTIONS
 #define COMMON_FUNCTIONS
 
-#include <stdio.h>     // Import for `printf` & `perror`
-#include <unistd.h>    // Import for `read`, `write & `lseek`
-#include <string.h>    // Import for string functions
-#include <stdbool.h>   // Import for `bool` data type
-#include <sys/types.h> // Import for `open`, `lseek`
-#include <sys/stat.h>  // Import for `open`
-#include <fcntl.h>     // Import for `open`
-#include <stdlib.h>    // Import for `atoi`
-#include <errno.h>     // Import for `errno`
+#include <stdio.h>
+#include <unistd.h>
+#include <string.h>
+#include <stdbool.h>
+#include <sys/types.h> 
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <stdlib.h> 
+#include <errno.h> 
 #include <crypt.h>
 
 #include "../record-struct/account.h"
@@ -27,7 +27,7 @@ int semIdentifier;
 
 // Function Prototypes =================================
 
-bool login_handler(int role, int connFD, void* ptr);
+bool emp_login_handler(int connFD, struct Employee *ptr);
 bool change_password(int role, int connFD,void *ptr);
 bool lock_critical_section(struct sembuf *semOp);
 bool unlock_critical_section(struct sembuf *sem_op);
@@ -138,7 +138,7 @@ bool login_handler(int role, int connFD, void* ptrToUserID)
     }
     else if(role==3){
 
-        struct Employee emp;
+        //struct Employee emp;
         bzero(tempBuffer, sizeof(tempBuffer));
         strcpy(tempBuffer, readBuffer);
         strtok(tempBuffer, "-");
@@ -172,7 +172,7 @@ bool login_handler(int role, int connFD, void* ptrToUserID)
 
             lock.l_type = F_UNLCK;
             fcntl(empFileFD, F_SETLK, &lock);
-
+            printf("%s\n",emp.login);
             if (strcmp(emp.login, readBuffer) == 0)
                 userFound = true;
 
@@ -220,9 +220,12 @@ bool login_handler(int role, int connFD, void* ptrToUserID)
             }
         }
         else if(role==3){
+            printf("%s %s\n",hashedPassword,emp.password);
+
             if (strcmp(hashedPassword, emp.password) == 0)
             {
                 ptrToUserID = (struct Employee*) &emp;
+                printf("%p\n",ptrToUserID);
                 return true;
             }
 
@@ -243,6 +246,129 @@ bool login_handler(int role, int connFD, void* ptrToUserID)
     return false;
 }
 
+bool emp_login_handler(int connFD, struct Employee *emp)
+{
+    ssize_t readBytes, writeBytes;           
+    char readBuffer[1000], writeBuffer[1000]; 
+    char tempBuffer[1000];
+
+    int ID;
+
+    bzero(readBuffer, sizeof(readBuffer));
+    memset(writeBuffer, 0, sizeof(writeBuffer));
+
+    strcpy(writeBuffer, EMP_LOGIN_WELCOME);
+  
+    // Append the request for LOGIN ID message
+    strcat(writeBuffer, "\n");
+    strcat(writeBuffer, LOGIN_ID);
+
+    writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
+    if (writeBytes == -1)
+    {
+        perror("Error writing WELCOME & LOGIN_ID message to the client!");
+        return false;
+    }
+
+    readBytes = read(connFD, readBuffer, sizeof(readBuffer));
+    if (readBytes == -1)
+    {
+        perror("Error reading login ID from client!");
+        return false;
+    }
+
+   	bool userFound = false;
+
+    bzero(tempBuffer, sizeof(tempBuffer));
+    strcpy(tempBuffer, readBuffer);
+    if (strchr(tempBuffer, '-') != NULL)
+    {
+        strtok(tempBuffer, "-");
+        ID = atoi(strtok(NULL, "-"));
+    }
+	else
+	{
+        writeBytes = write(connFD, EMP_LOGIN_ID_DOESNT_EXIST, strlen(EMP_LOGIN_ID_DOESNT_EXIST));
+        return false;
+	}
+    int empFileFD = open(EMP_FILE, O_RDONLY);
+    if (empFileFD == -1)
+    {
+        perror("Error opening emp file in read mode!");
+        return false;
+    }
+
+    off_t offset = lseek(empFileFD, ID * sizeof(struct Employee), SEEK_SET);
+    if (offset >= 0)
+    {
+        struct flock lock = {F_RDLCK, SEEK_SET, ID * sizeof(struct Employee), sizeof(struct Employee), getpid()};
+
+        int lockingStatus = fcntl(empFileFD, F_SETLKW, &lock);
+        if (lockingStatus == -1)
+        {
+            perror("Error obtaining read lock on emp record!");
+            return false;
+        }
+
+        readBytes = read(empFileFD, emp, sizeof(struct Employee));
+        if (readBytes == -1)
+        {
+            perror("Error reading emp record from file!");
+        }
+
+        lock.l_type = F_UNLCK;
+        fcntl(empFileFD, F_SETLK, &lock);
+        if (strcmp(emp->login, readBuffer) == 0)
+        {
+            userFound = true;
+            close(empFileFD);
+        }
+        else
+        {
+            writeBytes = write(connFD, EMP_LOGIN_ID_DOESNT_EXIST, strlen(EMP_LOGIN_ID_DOESNT_EXIST));
+            return false;
+        }
+    }
+
+    if (userFound)
+    {
+        memset(writeBuffer, 0, sizeof(writeBuffer));
+        writeBytes = write(connFD, PASSWORD, strlen(PASSWORD));
+        if (writeBytes == -1)
+        {
+            perror("Error writing PASSWORD message to client!");
+            return false;
+        }
+
+        bzero(readBuffer, sizeof(readBuffer));
+        readBytes = read(connFD, readBuffer, sizeof(readBuffer));
+        if (readBytes == 1)
+        {
+            perror("Error reading password from the client!");
+            return false;
+        }
+
+            if (strcmp(readBuffer, emp->password) == 0)
+            {
+                return true;
+            }
+            else
+            {
+                memset(readBuffer, 0, sizeof(readBuffer));
+                writeBytes = write(connFD, INVALID_PASSWORD, strlen(INVALID_PASSWORD));
+                //read(connFD, readBuffer, sizeof(readBuffer));                
+            }      
+    }
+    else
+    {
+        memset(writeBuffer, 0, sizeof(writeBuffer));
+        writeBytes = write(connFD, INVALID_LOGIN, strlen(INVALID_LOGIN));
+    }
+
+    return false;
+}
+
+
 bool change_password(int role, int connFD, void* ptr)
 {
     ssize_t readBytes, writeBytes;
@@ -252,19 +378,19 @@ bool change_password(int role, int connFD, void* ptr)
     if(role==1){
     	struct Customer* ptrToUserID = (struct Customer*) ptr;
     	// Lock the critical section
-    struct sembuf semOp = {0, -1, SEM_UNDO};
-    int semopStatus = semop(semIdentifier, &semOp, 1);
-    if (semopStatus == -1)
-    {
-        perror("Error while locking critical section");
-        return false;
-    }
+    // struct sembuf semOp = {0, -1, SEM_UNDO};
+    // int semopStatus = semop(semIdentifier, &semOp, 1);
+    // if (semopStatus == -1)
+    // {
+    //     perror("Error while locking critical section");
+    //     return false;
+    // }
 
     writeBytes = write(connFD, PASSWORD_CHANGE_OLD_PASS, strlen(PASSWORD_CHANGE_OLD_PASS));
     if (writeBytes == -1)
     {
         perror("Error writing PASSWORD_CHANGE_OLD_PASS message to client!");
-        unlock_critical_section(&semOp);
+        //unlock_critical_section(&semOp);
         return false;
     }
 
@@ -273,7 +399,7 @@ bool change_password(int role, int connFD, void* ptr)
     if (readBytes == -1)
     {
         perror("Error reading old password response from client");
-        unlock_critical_section(&semOp);
+        //unlock_critical_section(&semOp);
         return false;
     }
 
@@ -285,7 +411,7 @@ bool change_password(int role, int connFD, void* ptr)
         if (writeBytes == -1)
         {
             perror("Error writing PASSWORD_CHANGE_NEW_PASS message to client!");
-            unlock_critical_section(&semOp);
+            //unlock_critical_section(&semOp);
             return false;
         }
         bzero(readBuffer, sizeof(readBuffer));
@@ -293,7 +419,7 @@ bool change_password(int role, int connFD, void* ptr)
         if (readBytes == -1)
         {
             perror("Error reading new password response from client");
-            unlock_critical_section(&semOp);
+            //unlock_critical_section(&semOp);
             return false;
         }
 
@@ -304,7 +430,7 @@ bool change_password(int role, int connFD, void* ptr)
         if (writeBytes == -1)
         {
             perror("Error writing PASSWORD_CHANGE_NEW_PASS_RE message to client!");
-            unlock_critical_section(&semOp);
+            //unlock_critical_section(&semOp);
             return false;
         }
         bzero(readBuffer, sizeof(readBuffer));
@@ -312,7 +438,7 @@ bool change_password(int role, int connFD, void* ptr)
         if (readBytes == -1)
         {
             perror("Error reading new password reenter response from client");
-            unlock_critical_section(&semOp);
+            //unlock_critical_section(&semOp);
             return false;
         }
 
@@ -327,7 +453,7 @@ bool change_password(int role, int connFD, void* ptr)
             if (customerFileDescriptor == -1)
             {
                 perror("Error opening customer file!");
-                unlock_critical_section(&semOp);
+                //unlock_critical_section(&semOp);
                 return false;
             }
 
@@ -335,7 +461,7 @@ bool change_password(int role, int connFD, void* ptr)
             if (offset == -1)
             {
                 perror("Error seeking to the customer record!");
-                unlock_critical_section(&semOp);
+                //unlock_critical_section(&semOp);
                 return false;
             }
 
@@ -344,7 +470,7 @@ bool change_password(int role, int connFD, void* ptr)
             if (lockingStatus == -1)
             {
                 perror("Error obtaining write lock on customer record!");
-                unlock_critical_section(&semOp);
+                //unlock_critical_section(&semOp);
                 return false;
             }
 
@@ -352,7 +478,7 @@ bool change_password(int role, int connFD, void* ptr)
             if (writeBytes == -1)
             {
                 perror("Error storing updated customer password into customer record!");
-                unlock_critical_section(&semOp);
+                //unlock_critical_section(&semOp);
                 return false;
             }
 
@@ -364,7 +490,7 @@ bool change_password(int role, int connFD, void* ptr)
             writeBytes = write(connFD, PASSWORD_CHANGE_SUCCESS, strlen(PASSWORD_CHANGE_SUCCESS));
             readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
 
-            unlock_critical_section(&semOp);
+            //unlock_critical_section(&semOp);
 
             return true;
         }
@@ -382,24 +508,24 @@ bool change_password(int role, int connFD, void* ptr)
         readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
     }
 
-    unlock_critical_section(&semOp);
+    //unlock_critical_section(&semOp);
 	}
     else if(role==3){
     	struct Employee* ptrToUserID = (struct Employee*)ptr;
     	// Lock the critical section
-    struct sembuf semOp = {0, -1, SEM_UNDO};
-    int semopStatus = semop(semIdentifier, &semOp, 1);
-    if (semopStatus == -1)
-    {
-        perror("Error while locking critical section");
-        return false;
-    }
+    // struct sembuf semOp = {0, -1, SEM_UNDO};
+    // int semopStatus = semop(semIdentifier, &semOp, 1);
+    // if (semopStatus == -1)
+    // {
+    //     perror("Error while locking critical section");
+    //     return false;
+    // }
 
     writeBytes = write(connFD, PASSWORD_CHANGE_OLD_PASS, strlen(PASSWORD_CHANGE_OLD_PASS));
     if (writeBytes == -1)
     {
         perror("Error writing PASSWORD_CHANGE_OLD_PASS message to client!");
-        unlock_critical_section(&semOp);
+        //unlock_critical_section(&semOp);
         return false;
     }
 
@@ -410,7 +536,7 @@ bool change_password(int role, int connFD, void* ptr)
     if (readBytes == -1)
     {
         perror("Error reading old password response from client");
-        unlock_critical_section(&semOp);
+        //unlock_critical_section(&semOp);
         return false;
     }
     
@@ -422,7 +548,7 @@ bool change_password(int role, int connFD, void* ptr)
         if (writeBytes == -1)
         {
             perror("Error writing PASSWORD_CHANGE_NEW_PASS message to client!");
-            unlock_critical_section(&semOp);
+            //unlock_critical_section(&semOp);
             return false;
         }
         bzero(readBuffer, sizeof(readBuffer));
@@ -430,7 +556,7 @@ bool change_password(int role, int connFD, void* ptr)
         if (readBytes == -1)
         {
             perror("Error reading new password response from client");
-            unlock_critical_section(&semOp);
+            //unlock_critical_section(&semOp);
             return false;
         }
         
@@ -441,7 +567,7 @@ bool change_password(int role, int connFD, void* ptr)
         if (writeBytes == -1)
         {
             perror("Error writing PASSWORD_CHANGE_NEW_PASS_RE message to client!");
-            unlock_critical_section(&semOp);
+            //unlock_critical_section(&semOp);
             return false;
         }
         bzero(readBuffer, sizeof(readBuffer));
@@ -449,7 +575,7 @@ bool change_password(int role, int connFD, void* ptr)
         if (readBytes == -1)
         {
             perror("Error reading new password reenter response from client");
-            unlock_critical_section(&semOp);
+            //unlock_critical_section(&semOp);
             return false;
         }
 
@@ -464,7 +590,7 @@ bool change_password(int role, int connFD, void* ptr)
             if (employeeFileDescriptor == -1)
             {
                 perror("Error opening employee file!");
-                unlock_critical_section(&semOp);
+                //unlock_critical_section(&semOp);
                 return false;
             }
 
@@ -472,7 +598,7 @@ bool change_password(int role, int connFD, void* ptr)
             if (offset == -1)
             {
                 perror("Error seeking to the employee record!");
-                unlock_critical_section(&semOp);
+                //unlock_critical_section(&semOp);
                 return false;
             }
 
@@ -481,7 +607,7 @@ bool change_password(int role, int connFD, void* ptr)
             if (lockingStatus == -1)
             {
                 perror("Error obtaining write lock on employee record!");
-                unlock_critical_section(&semOp);
+                //unlock_critical_section(&semOp);
                 return false;
             }
 
@@ -489,7 +615,7 @@ bool change_password(int role, int connFD, void* ptr)
             if (writeBytes == -1)
             {
                 perror("Error storing updated employee password into employee record!");
-                unlock_critical_section(&semOp);
+                //unlock_critical_section(&semOp);
                 return false;
             }
 
@@ -501,7 +627,7 @@ bool change_password(int role, int connFD, void* ptr)
             writeBytes = write(connFD, PASSWORD_CHANGE_SUCCESS, strlen(PASSWORD_CHANGE_SUCCESS));
             readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
 
-            unlock_critical_section(&semOp);
+            //unlock_critical_section(&semOp);
 
             return true;
         }
@@ -519,7 +645,7 @@ bool change_password(int role, int connFD, void* ptr)
         readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
     }
 
-    unlock_critical_section(&semOp);
+    //unlock_critical_section(&semOp);
     }
     return false;
 }
