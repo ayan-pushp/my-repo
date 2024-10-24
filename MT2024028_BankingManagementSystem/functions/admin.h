@@ -1,18 +1,41 @@
 #ifndef ADMIN_FUNCTIONS
 #define ADMIN_FUNCTIONS
 
+#include <stdio.h>
+#include <unistd.h>
+#include <string.h>
+#include <stdbool.h>
+#include <sys/types.h> 
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <stdlib.h> 
+#include <errno.h> 
+#include <crypt.h>
+
+#include "../record-struct/account.h"
+#include "../record-struct/customer.h"
+#include "../record-struct/transaction.h"
+#include "../record-struct/emp.h"
+
+#include "./admin-credentials.h"
+#include "./server-constants.h"
+
 #include <sys/ipc.h>
 #include <sys/sem.h>
-#include "./common.h"
+int semIdentifier;
+
+struct Customer loggedInCustomer;
+int semIdentifier;
 
 bool admin_operation_handler(int connFD);
+bool admin_login_handler(int connFD);
 int add_employee(int connFD);
 bool modify_emp_info(int connFD);
 
 bool admin_operation_handler(int connFD)
 {
 
-    if (login_handler(2, connFD, NULL))
+    if (admin_login_handler(connFD))
     {
         ssize_t writeBytes, readBytes;
         char readBuffer[1000], writeBuffer[1000];
@@ -65,6 +88,73 @@ bool admin_operation_handler(int connFD)
         return false;
     }
     return true;
+}
+
+bool admin_login_handler(int connFD){
+    ssize_t readBytes, writeBytes; 
+    char readBuffer[1000], writeBuffer[1000];
+    char tempBuffer[1000];
+
+    int ID;
+
+    bzero(readBuffer, sizeof(readBuffer));
+    memset(writeBuffer, 0, sizeof(writeBuffer));
+
+    strcpy(writeBuffer, ADMIN_LOGIN_WELCOME);
+
+   // Append the request for LOGIN ID message
+    strcat(writeBuffer, "\n");
+    strcat(writeBuffer, LOGIN_ID);
+
+    writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
+    if (writeBytes == -1)
+    {
+        perror("Error writing WELCOME & LOGIN_ID message to the client!");
+        return false;
+    }
+
+    readBytes = read(connFD, readBuffer, sizeof(readBuffer));
+    if (readBytes == -1)
+    {
+        perror("Error reading login ID from client!");
+        return false;
+    }
+
+    bool userFound = false;
+    if (strcmp(readBuffer, ADMIN_LOGIN_ID) == 0)
+            userFound = true;
+
+    if (userFound)
+    {
+        memset(writeBuffer, 0, sizeof(writeBuffer));
+        writeBytes = write(connFD, PASSWORD, strlen(PASSWORD));
+        if (writeBytes == -1)
+        {
+            perror("Error writing PASSWORD message to client!");
+            return false;
+        }
+
+        bzero(readBuffer, sizeof(readBuffer));
+        readBytes = read(connFD, readBuffer, sizeof(readBuffer));
+        if (readBytes == 1)
+        {
+            perror("Error reading password from the client!");
+            return false;
+        }
+
+        if (strcmp(readBuffer, ADMIN_PASSWORD) == 0)
+                return true;
+
+        memset(writeBuffer, 0, sizeof(writeBuffer));
+        writeBytes = write(connFD, INVALID_PASSWORD, strlen(INVALID_PASSWORD));
+    }
+    else
+    {
+        memset(writeBuffer, 0, sizeof(writeBuffer));
+        writeBytes = write(connFD, INVALID_LOGIN, strlen(INVALID_LOGIN));
+    }
+
+    return false;
 }
 
 int add_employee(int connFD)
@@ -259,6 +349,258 @@ int add_employee(int connFD)
     readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
 
     return newEmployee.id;
+}
+
+bool modify_emp_info(int connFD)
+{
+    ssize_t readBytes, writeBytes;
+    char readBuffer[1000], writeBuffer[1000];
+
+    struct Employee employee;
+
+    int employeeID;
+
+    off_t offset;
+    int lockingStatus;
+
+    writeBytes = write(connFD, ADMIN_MOD_EMPLOYEE_ID, strlen(ADMIN_MOD_EMPLOYEE_ID));
+    if (writeBytes == -1)
+    {
+        perror("Error while writing ADMIN_MOD_EMPLOYEE_ID message to client!");
+        return false;
+    }
+    memset(readBuffer, 0, sizeof(readBuffer));
+    readBytes = read(connFD, readBuffer, sizeof(readBuffer));
+    if (readBytes == -1)
+    {
+        perror("Error while reading employee ID from client!");
+        return false;
+    }
+
+    employeeID = atoi(readBuffer);
+
+    int employeeFileDescriptor = open(EMP_FILE, O_RDONLY);
+    if (employeeFileDescriptor == -1)
+    {
+        // Employee File doesn't exist
+        memset(writeBuffer, 0, sizeof(writeBuffer));
+        strcpy(writeBuffer, EMP_ID_DOESNT_EXIST);
+        strcat(writeBuffer, "^");
+        writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
+        if (writeBytes == -1)
+        {
+            perror("Error while writing EMPLOYEE_ID_DOESNT_EXIST message to client!");
+            return false;
+        }
+        readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
+        return false;
+    }
+    
+    offset = lseek(employeeFileDescriptor, employeeID * sizeof(struct Employee), SEEK_SET);
+    if (errno == EINVAL)
+    {
+        // Employee record doesn't exist
+        memset(writeBuffer, 0, sizeof(writeBuffer));
+        strcpy(writeBuffer, EMP_ID_DOESNT_EXIST);
+        strcat(writeBuffer, "^");
+        writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
+        if (writeBytes == -1)
+        {
+            perror("Error while writing EMPLOYEE_ID_DOESNT_EXIST message to client!");
+            return false;
+        }
+        readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
+        return false;
+    }
+    else if (offset == -1)
+    {
+        perror("Error while seeking to required employee record!");
+        return false;
+    }
+
+    struct flock lock = {F_RDLCK, SEEK_SET, offset, sizeof(struct Employee), getpid()};
+
+    // Lock the record to be read
+    lockingStatus = fcntl(employeeFileDescriptor, F_SETLKW, &lock);
+    if (lockingStatus == -1)
+    {
+        perror("Couldn't obtain lock on employee record!");
+        return false;
+    }
+
+    readBytes = read(employeeFileDescriptor, &employee, sizeof(struct Employee));
+    if (readBytes == -1)
+    {
+        perror("Error while reading employee record from the file!");
+        return false;
+    }
+
+    // Unlock the record
+    lock.l_type = F_UNLCK;
+    fcntl(employeeFileDescriptor, F_SETLK, &lock);
+
+    close(employeeFileDescriptor);
+
+    writeBytes = write(connFD, ADMIN_MOD_EMPLOYEE_MENU, strlen(ADMIN_MOD_EMPLOYEE_MENU));
+    if (writeBytes == -1)
+    {
+        perror("Error while writing ADMIN_MOD_EMPLOYEE_MENU message to client!");
+        return false;
+    }
+    readBytes = read(connFD, readBuffer, sizeof(readBuffer));
+    if (readBytes == -1)
+    {
+        perror("Error while getting employee modification menu choice from client!");
+        return false;
+    }
+
+    int choice = atoi(readBuffer);
+    if (choice == 0)
+    { // A non-numeric string was passed to atoi
+        memset(writeBuffer, 0, sizeof(writeBuffer));
+        strcpy(writeBuffer, ERRON_INPUT_FOR_NUMBER);
+        writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
+        if (writeBytes == -1)
+        {
+            perror("Error while writing ERRON_INPUT_FOR_NUMBER message to client!");
+            return false;
+        }
+        readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
+        return false;
+    }
+
+    memset(readBuffer, 0, sizeof(readBuffer));
+    switch (choice)
+    {
+    case 1:
+        writeBytes = write(connFD, ADMIN_MOD_EMPLOYEE_NEW_NAME, strlen(ADMIN_MOD_EMPLOYEE_NEW_NAME));
+        if (writeBytes == -1)
+        {
+            perror("Error while writing ADMIN_MOD_EMPLOYEE_NEW_NAME message to client!");
+            return false;
+        }
+        readBytes = read(connFD, &readBuffer, sizeof(readBuffer));
+        if (readBytes == -1)
+        {
+            perror("Error while getting response for employee's new name from client!");
+            return false;
+        }
+        strcpy(employee.name, readBuffer);
+        break;
+    case 2:
+        writeBytes = write(connFD, ADMIN_MOD_EMPLOYEE_NEW_AGE, strlen(ADMIN_MOD_EMPLOYEE_NEW_AGE));
+        if (writeBytes == -1)
+        {
+            perror("Error while writing ADMIN_MOD_EMPLOYEE_NEW_AGE message to client!");
+            return false;
+        }
+        readBytes = read(connFD, &readBuffer, sizeof(readBuffer));
+        if (readBytes == -1)
+        {
+            perror("Error while getting response for employee's new age from client!");
+            return false;
+        }
+        int updatedAge = atoi(readBuffer);
+        if (updatedAge == 0)
+        {
+            // Either client has sent age as 0 (which is invalid) or has entered a non-numeric string
+            memset(writeBuffer, 0, sizeof(writeBuffer));
+            strcpy(writeBuffer, ERRON_INPUT_FOR_NUMBER);
+            writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
+            if (writeBytes == -1)
+            {
+                perror("Error while writing ERRON_INPUT_FOR_NUMBER message to client!");
+                return false;
+            }
+            readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
+            return false;
+        }
+        employee.age = updatedAge;
+        break;
+    case 3:
+        writeBytes = write(connFD, ADMIN_MOD_EMPLOYEE_NEW_GENDER, strlen(ADMIN_MOD_EMPLOYEE_NEW_GENDER));
+        if (writeBytes == -1)
+        {
+            perror("Error while writing ADMIN_MOD_EMPLOYEE_NEW_GENDER message to client!");
+            return false;
+        }
+        readBytes = read(connFD, &readBuffer, sizeof(readBuffer));
+        if (readBytes == -1)
+        {
+            perror("Error while getting response for employee's new gender from client!");
+            return false;
+        }
+        employee.gender = readBuffer[0];
+        break;
+    case 4:
+        writeBytes = write(connFD, ADMIN_MOD_EMPLOYEE_NEW_ROLE, strlen(ADMIN_MOD_EMPLOYEE_NEW_ROLE));
+        if (writeBytes == -1)
+        {
+            perror("Error while writing ADMIN_MOD_EMPLOYEE_NEW_ROLE message to client!");
+            return false;
+        }
+        readBytes = read(connFD, &readBuffer, sizeof(readBuffer));
+        if (readBytes == -1)
+        {
+            perror("Error while getting response for employee's new role from client!");
+            return false;
+        }
+        employee.role = readBuffer[0];
+        break;
+    default:
+        writeBytes = write(connFD, INVALID_MENU_CHOICE, strlen(INVALID_MENU_CHOICE));
+       
+        if (writeBytes == -1)
+        {
+            perror("Error while writing INVALID_MENU_CHOICE message to client!");
+            return false;
+        }
+        readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
+        return false;
+    }
+
+    employeeFileDescriptor = open(EMP_FILE, O_WRONLY);
+    if (employeeFileDescriptor == -1)
+    {
+        perror("Error while opening employee file");
+        return false;
+    }
+    offset = lseek(employeeFileDescriptor, employeeID * sizeof(struct Employee), SEEK_SET);
+    if (offset == -1)
+    {
+        perror("Error while seeking to required employee record!");
+        return false;
+    }
+
+    lock.l_type = F_WRLCK;
+    lock.l_start = offset;
+    lockingStatus = fcntl(employeeFileDescriptor, F_SETLKW, &lock);
+    if (lockingStatus == -1)
+    {
+        perror("Error while obtaining write lock on employee record!");
+        return false;
+    }
+
+    writeBytes = write(employeeFileDescriptor, &employee, sizeof(struct Employee));
+    if (writeBytes == -1)
+    {
+        perror("Error while writing update employee info into file");
+    }
+
+    lock.l_type = F_UNLCK;
+    fcntl(employeeFileDescriptor, F_SETLKW, &lock);
+
+    close(employeeFileDescriptor);
+
+    writeBytes = write(connFD, ADMIN_MOD_EMPLOYEE_SUCCESS, strlen(ADMIN_MOD_EMPLOYEE_SUCCESS));
+    if (writeBytes == -1)
+    {
+        perror("Error while writing ADMIN_MOD_EMPLOYEE_SUCCESS message to client!");
+        return false;
+    }
+    readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
+
+    return true;
 }
 
 /*
@@ -675,260 +1017,5 @@ bool delete_account(int connFD)
     return true;
 }
 */
-
-bool modify_emp_info(int connFD)
-{
-    ssize_t readBytes, writeBytes;
-    char readBuffer[1000], writeBuffer[1000];
-
-    struct Employee employee;
-
-    int employeeID;
-
-    off_t offset;
-    int lockingStatus;
-
-    writeBytes = write(connFD, ADMIN_MOD_EMPLOYEE_ID, strlen(ADMIN_MOD_EMPLOYEE_ID));
-    if (writeBytes == -1)
-    {
-        perror("Error while writing ADMIN_MOD_EMPLOYEE_ID message to client!");
-        return false;
-    }
-    memset(readBuffer, 0, sizeof(readBuffer));
-    readBytes = read(connFD, readBuffer, sizeof(readBuffer));
-    if (readBytes == -1)
-    {
-        perror("Error while reading employee ID from client!");
-        return false;
-    }
-
-    employeeID = atoi(readBuffer);
-
-    int employeeFileDescriptor = open(EMP_FILE, O_RDONLY);
-    if (employeeFileDescriptor == -1)
-    {
-        // Employee File doesn't exist
-        memset(writeBuffer, 0, sizeof(writeBuffer));
-        strcpy(writeBuffer, EMP_ID_DOESNT_EXIST);
-        strcat(writeBuffer, "^");
-        writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
-        if (writeBytes == -1)
-        {
-            perror("Error while writing EMPLOYEE_ID_DOESNT_EXIST message to client!");
-            return false;
-        }
-        readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
-        return false;
-    }
-    
-    offset = lseek(employeeFileDescriptor, employeeID * sizeof(struct Employee), SEEK_SET);
-    if (errno == EINVAL)
-    {
-        // Employee record doesn't exist
-        memset(writeBuffer, 0, sizeof(writeBuffer));
-        strcpy(writeBuffer, EMP_ID_DOESNT_EXIST);
-        strcat(writeBuffer, "^");
-        writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
-        if (writeBytes == -1)
-        {
-            perror("Error while writing EMPLOYEE_ID_DOESNT_EXIST message to client!");
-            return false;
-        }
-        readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
-        return false;
-    }
-    else if (offset == -1)
-    {
-        perror("Error while seeking to required employee record!");
-        return false;
-    }
-
-    struct flock lock = {F_RDLCK, SEEK_SET, offset, sizeof(struct Employee), getpid()};
-
-    // Lock the record to be read
-    lockingStatus = fcntl(employeeFileDescriptor, F_SETLKW, &lock);
-    if (lockingStatus == -1)
-    {
-        perror("Couldn't obtain lock on employee record!");
-        return false;
-    }
-
-    readBytes = read(employeeFileDescriptor, &employee, sizeof(struct Employee));
-    if (readBytes == -1)
-    {
-        perror("Error while reading employee record from the file!");
-        return false;
-    }
-
-    // Unlock the record
-    lock.l_type = F_UNLCK;
-    fcntl(employeeFileDescriptor, F_SETLK, &lock);
-
-    close(employeeFileDescriptor);
-
-    writeBytes = write(connFD, ADMIN_MOD_EMPLOYEE_MENU, strlen(ADMIN_MOD_EMPLOYEE_MENU));
-    if (writeBytes == -1)
-    {
-        perror("Error while writing ADMIN_MOD_EMPLOYEE_MENU message to client!");
-        return false;
-    }
-    readBytes = read(connFD, readBuffer, sizeof(readBuffer));
-    if (readBytes == -1)
-    {
-        perror("Error while getting employee modification menu choice from client!");
-        return false;
-    }
-
-    int choice = atoi(readBuffer);
-    if (choice == 0)
-    { // A non-numeric string was passed to atoi
-        memset(writeBuffer, 0, sizeof(writeBuffer));
-        strcpy(writeBuffer, ERRON_INPUT_FOR_NUMBER);
-        writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
-        if (writeBytes == -1)
-        {
-            perror("Error while writing ERRON_INPUT_FOR_NUMBER message to client!");
-            return false;
-        }
-        readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
-        return false;
-    }
-
-    memset(readBuffer, 0, sizeof(readBuffer));
-    switch (choice)
-    {
-    case 1:
-        writeBytes = write(connFD, ADMIN_MOD_EMPLOYEE_NEW_NAME, strlen(ADMIN_MOD_EMPLOYEE_NEW_NAME));
-        if (writeBytes == -1)
-        {
-            perror("Error while writing ADMIN_MOD_EMPLOYEE_NEW_NAME message to client!");
-            return false;
-        }
-        readBytes = read(connFD, &readBuffer, sizeof(readBuffer));
-        if (readBytes == -1)
-        {
-            perror("Error while getting response for employee's new name from client!");
-            return false;
-        }
-        strcpy(employee.name, readBuffer);
-        break;
-    case 2:
-        writeBytes = write(connFD, ADMIN_MOD_EMPLOYEE_NEW_AGE, strlen(ADMIN_MOD_EMPLOYEE_NEW_AGE));
-        if (writeBytes == -1)
-        {
-            perror("Error while writing ADMIN_MOD_EMPLOYEE_NEW_AGE message to client!");
-            return false;
-        }
-        readBytes = read(connFD, &readBuffer, sizeof(readBuffer));
-        if (readBytes == -1)
-        {
-            perror("Error while getting response for employee's new age from client!");
-            return false;
-        }
-        int updatedAge = atoi(readBuffer);
-        if (updatedAge == 0)
-        {
-            // Either client has sent age as 0 (which is invalid) or has entered a non-numeric string
-            memset(writeBuffer, 0, sizeof(writeBuffer));
-            strcpy(writeBuffer, ERRON_INPUT_FOR_NUMBER);
-            writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
-            if (writeBytes == -1)
-            {
-                perror("Error while writing ERRON_INPUT_FOR_NUMBER message to client!");
-                return false;
-            }
-            readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
-            return false;
-        }
-        employee.age = updatedAge;
-        break;
-    case 3:
-        writeBytes = write(connFD, ADMIN_MOD_EMPLOYEE_NEW_GENDER, strlen(ADMIN_MOD_EMPLOYEE_NEW_GENDER));
-        if (writeBytes == -1)
-        {
-            perror("Error while writing ADMIN_MOD_EMPLOYEE_NEW_GENDER message to client!");
-            return false;
-        }
-        readBytes = read(connFD, &readBuffer, sizeof(readBuffer));
-        if (readBytes == -1)
-        {
-            perror("Error while getting response for employee's new gender from client!");
-            return false;
-        }
-        employee.gender = readBuffer[0];
-        break;
-    case 4:
-        writeBytes = write(connFD, ADMIN_MOD_EMPLOYEE_NEW_ROLE, strlen(ADMIN_MOD_EMPLOYEE_NEW_ROLE));
-        if (writeBytes == -1)
-        {
-            perror("Error while writing ADMIN_MOD_EMPLOYEE_NEW_ROLE message to client!");
-            return false;
-        }
-        readBytes = read(connFD, &readBuffer, sizeof(readBuffer));
-        if (readBytes == -1)
-        {
-            perror("Error while getting response for employee's new role from client!");
-            return false;
-        }
-        employee.role = readBuffer[0];
-        break;
-    default:
-        //memset(writeBuffer, 0, sizeof(writeBuffer));
-        //strcpy(writeBuffer, INVALID_MENU_CHOICE);
-        //writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
-        writeBytes = write(connFD, INVALID_MENU_CHOICE, strlen(INVALID_MENU_CHOICE));
-       
-        if (writeBytes == -1)
-        {
-            perror("Error while writing INVALID_MENU_CHOICE message to client!");
-            return false;
-        }
-        readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
-        return false;
-    }
-
-    employeeFileDescriptor = open(EMP_FILE, O_WRONLY);
-    if (employeeFileDescriptor == -1)
-    {
-        perror("Error while opening employee file");
-        return false;
-    }
-    offset = lseek(employeeFileDescriptor, employeeID * sizeof(struct Employee), SEEK_SET);
-    if (offset == -1)
-    {
-        perror("Error while seeking to required employee record!");
-        return false;
-    }
-
-    lock.l_type = F_WRLCK;
-    lock.l_start = offset;
-    lockingStatus = fcntl(employeeFileDescriptor, F_SETLKW, &lock);
-    if (lockingStatus == -1)
-    {
-        perror("Error while obtaining write lock on employee record!");
-        return false;
-    }
-
-    writeBytes = write(employeeFileDescriptor, &employee, sizeof(struct Employee));
-    if (writeBytes == -1)
-    {
-        perror("Error while writing update employee info into file");
-    }
-
-    lock.l_type = F_UNLCK;
-    fcntl(employeeFileDescriptor, F_SETLKW, &lock);
-
-    close(employeeFileDescriptor);
-
-    writeBytes = write(connFD, ADMIN_MOD_EMPLOYEE_SUCCESS, strlen(ADMIN_MOD_EMPLOYEE_SUCCESS));
-    if (writeBytes == -1)
-    {
-        perror("Error while writing ADMIN_MOD_EMPLOYEE_SUCCESS message to client!");
-        return false;
-    }
-    readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
-
-    return true;
-}
 
 #endif

@@ -1,17 +1,29 @@
 #ifndef EMP_FUNCTIONS
 #define EMP_FUNCTIONS
 
+#include <stdio.h>
+#include <unistd.h>
+#include <string.h>
+#include <stdbool.h>
+#include <sys/types.h> 
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <stdlib.h> 
+#include <errno.h> 
+#include <crypt.h>
+
+#include "../record-struct/account.h"
+#include "../record-struct/customer.h"
+#include "./server-constants.h"
+
 #include <sys/ipc.h>
 #include <sys/sem.h>
-
-#include "common.h"
-
-struct Employee loggedInEmployee;
 int semIdentifier;
 
-// Function Prototypes =================================
+struct Employee loggedInEmployee;
 
 bool emp_operation_handler(int connFD);
+bool emp_login_handler(int connFD, struct Employee *emp);
 bool add_account(int connFD);
 int add_customer(int connFD,  int newAccountNumber);
 bool modify_customer_info(int connFD);
@@ -19,18 +31,17 @@ bool change_emp_password(int connFD, struct Employee *emp);
 //void process_loan(int connFD);
 //void view_assgn_loan(int connFD);
 
-// Function Definitions =================================
-
 
 bool emp_operation_handler(int connFD)
 {
-
     if (emp_login_handler(connFD, &loggedInEmployee))
     {
         ssize_t writeBytes, readBytes; 
         char readBuffer[1000], writeBuffer[1000]; 
         memset(writeBuffer, 0, sizeof(writeBuffer));
-        strcpy(writeBuffer, EMP_LOGIN_SUCCESS);
+        strcpy(writeBuffer,"Hey ");
+        strcat(writeBuffer, loggedInEmployee.name);
+        strcat(writeBuffer, EMP_LOGIN_SUCCESS);
         while (1)
         {
             strcat(writeBuffer, "\n");
@@ -71,7 +82,8 @@ bool emp_operation_handler(int connFD)
             case 6:
             //Logout
                 memset(writeBuffer,0,sizeof(writeBuffer));
-                strcpy(writeBuffer,loggedInEmployee.name);
+                strcpy(writeBuffer,"Bye ");
+                strcat(writeBuffer,loggedInEmployee.name);
                 strcat(writeBuffer,LOGOUT);               
                 writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
                 return false;
@@ -87,6 +99,128 @@ bool emp_operation_handler(int connFD)
         return false;
     }
     return true;
+}
+
+bool emp_login_handler(int connFD, struct Employee *emp)
+{
+    ssize_t readBytes, writeBytes;           
+    char readBuffer[1000], writeBuffer[1000]; 
+    char tempBuffer[1000];
+
+    int ID;
+
+    bzero(readBuffer, sizeof(readBuffer));
+    memset(writeBuffer, 0, sizeof(writeBuffer));
+
+    strcpy(writeBuffer, EMP_LOGIN_WELCOME);
+  
+    // Append the request for LOGIN ID message
+    strcat(writeBuffer, "\n");
+    strcat(writeBuffer, LOGIN_ID);
+
+    writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
+    if (writeBytes == -1)
+    {
+        perror("Error writing WELCOME & LOGIN_ID message to the client!");
+        return false;
+    }
+
+    readBytes = read(connFD, readBuffer, sizeof(readBuffer));
+    if (readBytes == -1)
+    {
+        perror("Error reading login ID from client!");
+        return false;
+    }
+
+   	bool userFound = false;
+
+    bzero(tempBuffer, sizeof(tempBuffer));
+    strcpy(tempBuffer, readBuffer);
+    if (strchr(tempBuffer, '-') != NULL)
+    {
+        strtok(tempBuffer, "-");
+        ID = atoi(strtok(NULL, "-"));
+    }
+	else
+	{
+        writeBytes = write(connFD, EMP_LOGIN_ID_DOESNT_EXIST, strlen(EMP_LOGIN_ID_DOESNT_EXIST));
+        return false;
+	}
+    int empFileFD = open(EMP_FILE, O_RDONLY);
+    if (empFileFD == -1)
+    {
+        perror("Error opening emp file in read mode!");
+        return false;
+    }
+
+    off_t offset = lseek(empFileFD, ID * sizeof(struct Employee), SEEK_SET);
+    if (offset >= 0)
+    {
+        struct flock lock = {F_RDLCK, SEEK_SET, ID * sizeof(struct Employee), sizeof(struct Employee), getpid()};
+
+        int lockingStatus = fcntl(empFileFD, F_SETLKW, &lock);
+        if (lockingStatus == -1)
+        {
+            perror("Error obtaining read lock on emp record!");
+            return false;
+        }
+
+        readBytes = read(empFileFD, emp, sizeof(struct Employee));
+        if (readBytes == -1)
+        {
+            perror("Error reading emp record from file!");
+        }
+
+        lock.l_type = F_UNLCK;
+        fcntl(empFileFD, F_SETLK, &lock);
+        if (strcmp(emp->login, readBuffer) == 0)
+        {
+            userFound = true;
+            close(empFileFD);
+        }
+        else
+        {
+            writeBytes = write(connFD, EMP_LOGIN_ID_DOESNT_EXIST, strlen(EMP_LOGIN_ID_DOESNT_EXIST));
+            return false;
+        }
+    }
+
+    if (userFound)
+    {
+        memset(writeBuffer, 0, sizeof(writeBuffer));
+        writeBytes = write(connFD, PASSWORD, strlen(PASSWORD));
+        if (writeBytes == -1)
+        {
+            perror("Error writing PASSWORD message to client!");
+            return false;
+        }
+
+        bzero(readBuffer, sizeof(readBuffer));
+        readBytes = read(connFD, readBuffer, sizeof(readBuffer));
+        if (readBytes == 1)
+        {
+            perror("Error reading password from the client!");
+            return false;
+        }
+
+            if (strcmp(readBuffer, emp->password) == 0)
+            {
+                return true;
+            }
+            else
+            {
+                memset(readBuffer, 0, sizeof(readBuffer));
+                writeBytes = write(connFD, INVALID_PASSWORD, strlen(INVALID_PASSWORD));
+                //read(connFD, readBuffer, sizeof(readBuffer));                
+            }      
+    }
+    else
+    {
+        memset(writeBuffer, 0, sizeof(writeBuffer));
+        writeBytes = write(connFD, INVALID_LOGIN, strlen(INVALID_LOGIN));
+    }
+
+    return false;
 }
 
 bool add_account(int connFD)

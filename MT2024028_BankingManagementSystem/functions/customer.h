@@ -1,40 +1,57 @@
 #ifndef CUSTOMER_FUNCTIONS
 #define CUSTOMER_FUNCTIONS
 
+#include <stdio.h>
+#include <unistd.h>
+#include <string.h>
+#include <stdbool.h>
+#include <sys/types.h> 
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <stdlib.h> 
+#include <errno.h> 
+#include <crypt.h>
+
+#include "../record-struct/account.h"
+#include "../record-struct/customer.h"
+#include "../record-struct/transaction.h"
+#include "../record-struct/emp.h"
+
+#include "./admin-credentials.h"
+#include "./server-constants.h"
 
 #include <sys/ipc.h>
 #include <sys/sem.h>
-#include "common.h"
+int semIdentifier;
 
 struct Customer loggedInCustomer;
 int semIdentifier;
 
-// Function Prototypes =================================
-
 bool customer_operation_handler(int connFD);
+bool customer_login_handler(int connFD, struct Customer *customer);
+void get_customer_details();
 bool deposit(int connFD);
 bool withdraw(int connFD);
 bool get_balance(int connFD);
 bool get_account_details(int connFD, struct Account* account);
-bool get_customer_details(int connFD, int customerID);
-bool get_transaction_details(int connFD, int accountNumber);
 bool get_transaction_details(int connFD, int accountNumber);
 void write_transaction_to_array(int *transactionArray, int ID);
 int write_transaction_to_file(int accountNumber, long int oldBalance, long int newBalance, bool operation);
-
-// =====================================================
-
-// Function Definition =================================
+bool change_customer_password(int connFD, struct Customer* ptr);
+bool unlock_critical_section(struct sembuf *semOp);
+bool lock_critical_section(struct sembuf *semOp);
 
 bool customer_operation_handler(int connFD)
 {
-    if (login_handler(1, connFD, &loggedInCustomer))
+    if (customer_login_handler(connFD, &loggedInCustomer))
     {
-        ssize_t writeBytes, readBytes;            // Number of bytes read from / written to the client
-        char readBuffer[1000], writeBuffer[1000]; // A buffer used for reading & writing to the client
+        ssize_t writeBytes, readBytes; 
+        char readBuffer[1000], writeBuffer[1000]; 
 
         memset(writeBuffer, 0, sizeof(writeBuffer));
-        strcpy(writeBuffer, CUSTOMER_LOGIN_SUCCESS);
+        strcpy(writeBuffer,"Hey ");
+        strcat(writeBuffer, loggedInCustomer.name);
+        strcat(writeBuffer, CUSTOMER_LOGIN_SUCCESS);
 
         while (1)
         {
@@ -46,8 +63,8 @@ bool customer_operation_handler(int connFD)
                 perror("Error while writing CUSTOMER_MENU to client!");
                 return false;
             }
-            memset(readBuffer, 0, sizeof(readBuffer));
-            //bzero(readBuffer, sizeof(readBuffer));
+            memset(writeBuffer, 0, sizeof(writeBuffer));
+
             readBytes = read(connFD, readBuffer, sizeof(readBuffer));
             if (readBytes == -1)
             {
@@ -55,13 +72,11 @@ bool customer_operation_handler(int connFD)
                 return false;
             }
             
-            // printf("READ BUFFER : %s\n", readBuffer);
             int choice = atoi(readBuffer);
-            // printf("CHOICE : %d\n", choice);
             switch (choice)
             {
             case 1:
-                get_customer_details(connFD, loggedInCustomer.id);
+                get_customer_details(connFD);
                 break;
             case 2:
                 get_balance(connFD);
@@ -78,19 +93,25 @@ bool customer_operation_handler(int connFD)
             case 6:
                 //apply_loan(connFD);
                 break;
-            case 7:
-                change_password(1,connFD,&loggedInCustomer);
-                break;
             case 8:
                 //add_feedback(connFD);
                 break;
             case 9:
                 get_transaction_details(connFD,loggedInCustomer.account);
                 break;
-            
-            default:
-                writeBytes = write(connFD, CUSTOMER_LOGOUT, strlen(CUSTOMER_LOGOUT));
+            case 7:
+                if(!change_customer_password(connFD, &loggedInCustomer)) break;
+            case 10:
+            //Logout
+                memset(writeBuffer,0,sizeof(writeBuffer));
+                strcpy(writeBuffer,"Bye ");
+                strcat(writeBuffer,loggedInCustomer.name);
+                strcat(writeBuffer,LOGOUT);               
+                writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
                 return false;
+            default:
+                writeBytes = write(connFD, INVALID_MENU_CHOICE, strlen(INVALID_MENU_CHOICE));
+                read(connFD, readBuffer, sizeof(readBuffer));
             }
         }
     }
@@ -100,6 +121,128 @@ bool customer_operation_handler(int connFD)
       return false;
     }
    return true;
+}
+
+bool customer_login_handler(int connFD, struct Customer *customer)
+{
+    ssize_t readBytes, writeBytes;           
+    char readBuffer[1000], writeBuffer[1000]; 
+    char tempBuffer[1000];
+
+    int ID;
+
+    bzero(readBuffer, sizeof(readBuffer));
+    memset(writeBuffer, 0, sizeof(writeBuffer));
+
+    strcpy(writeBuffer, CUSTOMER_LOGIN_WELCOME);
+  
+    // Append the request for LOGIN ID message
+    strcat(writeBuffer, "\n");
+    strcat(writeBuffer, LOGIN_ID);
+
+    writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
+    if (writeBytes == -1)
+    {
+        perror("Error writing WELCOME & LOGIN_ID message to the client!");
+        return false;
+    }
+
+    readBytes = read(connFD, readBuffer, sizeof(readBuffer));
+    if (readBytes == -1)
+    {
+        perror("Error reading login ID from client!");
+        return false;
+    }
+
+    bool userFound = false;
+
+    bzero(tempBuffer, sizeof(tempBuffer));
+    strcpy(tempBuffer, readBuffer);
+    if (strchr(tempBuffer, '-') != NULL)
+    {
+        strtok(tempBuffer, "-");
+        ID = atoi(strtok(NULL, "-"));
+    }
+    else
+    {
+        writeBytes = write(connFD, CUSTOMER_LOGIN_ID_DOESNT_EXIST, strlen(CUSTOMER_LOGIN_ID_DOESNT_EXIST));
+        return false;
+    }
+    int customerFileFD = open(CUSTOMER_FILE, O_RDONLY);
+    if (customerFileFD == -1)
+    {
+        perror("Error opening customer file in read mode!");
+        return false;
+    }
+
+    off_t offset = lseek(customerFileFD, ID * sizeof(struct Customer), SEEK_SET);
+    if (offset >= 0)
+    {
+        struct flock lock = {F_RDLCK, SEEK_SET, ID * sizeof(struct Customer), sizeof(struct Customer), getpid()};
+
+        int lockingStatus = fcntl(customerFileFD, F_SETLKW, &lock);
+        if (lockingStatus == -1)
+        {
+            perror("Error obtaining read lock on customer record!");
+            return false;
+        }
+
+        readBytes = read(customerFileFD, customer, sizeof(struct Customer));
+        if (readBytes == -1)
+        {
+            perror("Error reading customer record from file!");
+        }
+
+        lock.l_type = F_UNLCK;
+        fcntl(customerFileFD, F_SETLK, &lock);
+        if (strcmp(customer->login, readBuffer) == 0)
+        {
+            userFound = true;
+            close(customerFileFD);
+        }
+        else
+        {
+            writeBytes = write(connFD, CUSTOMER_LOGIN_ID_DOESNT_EXIST, strlen(CUSTOMER_LOGIN_ID_DOESNT_EXIST));
+            return false;
+        }
+    }
+
+    if (userFound)
+    {
+        memset(writeBuffer, 0, sizeof(writeBuffer));
+        writeBytes = write(connFD, PASSWORD, strlen(PASSWORD));
+        if (writeBytes == -1)
+        {
+            perror("Error writing PASSWORD message to client!");
+            return false;
+        }
+
+        bzero(readBuffer, sizeof(readBuffer));
+        readBytes = read(connFD, readBuffer, sizeof(readBuffer));
+        if (readBytes == 1)
+        {
+            perror("Error reading password from the client!");
+            return false;
+        }
+
+            if (strcmp(readBuffer, customer->password) == 0)
+            {
+                return true;
+            }
+            else
+            {
+                memset(readBuffer, 0, sizeof(readBuffer));
+                writeBytes = write(connFD, INVALID_PASSWORD, strlen(INVALID_PASSWORD));
+                //read(connFD, readBuffer, sizeof(readBuffer));                
+            }      
+    }
+    else
+    {
+        memset(writeBuffer, 0, sizeof(writeBuffer));
+        writeBytes = write(connFD, INVALID_LOGIN, strlen(INVALID_LOGIN));
+    }
+
+    return false;
 }
 
 bool get_account_details(int connFD, struct Account* customerAccount)
@@ -216,25 +359,28 @@ bool get_account_details(int connFD, struct Account* customerAccount)
 
     return true;
 }
-/*
-off_t find_customer_by_id(int customerFileDescriptor, int customerID) {
-    struct Customer tempCustomer;
-    off_t offset = 0;
 
-    // Read through the file, record by record, until we find the customer
-    while (read(customerFileDescriptor, &tempCustomer, sizeof(struct Customer)) > 0) {
-        if (tempCustomer.id == customerID) {
-            // Found the customer, return the current offset
-            return offset;
-        }
-        offset += sizeof(struct Customer);
+void get_customer_details(int connFD){
+    ssize_t readBytes, writeBytes;
+    char readBuffer[1000], writeBuffer[10000];
+    
+    memset(writeBuffer, 0, sizeof(writeBuffer));
+    sprintf(writeBuffer, "Customer Details - \n\tID : %d\n\tName : %s\n\tGender : %c\n\tAge: %d\n\tAccount Number : %d\n\tLoginID : %s", loggedInCustomer.id, loggedInCustomer.name, loggedInCustomer.gender, loggedInCustomer.age, loggedInCustomer.account, loggedInCustomer.login);
+
+    strcat(writeBuffer, "\n\nYou'll now be redirected to the main menu...^");
+
+    writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
+    if (writeBytes == -1)
+    {
+        perror("Error writing customer info to client!");
+        return;
     }
 
-    // If no customer is found, return -1
-    return -1;
+    readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
+
 }
-*/
-bool get_customer_details(int connFD, int customerID)
+
+/*bool get_customer_details(int connFD, int customerID)
 {
     ssize_t readBytes, writeBytes;             // Number of bytes read from / written to the socket
     char readBuffer[1000], writeBuffer[10000]; // A buffer for reading from / writing to the socket
@@ -339,6 +485,7 @@ bool get_customer_details(int connFD, int customerID)
 
     return true;
 }
+*/
 
 bool deposit(int connFD)
 {
@@ -883,6 +1030,147 @@ bool get_transaction_details(int connFD, int accountNumber)
     }
 }
 
-// =====================================================
+bool change_customer_password(int connFD, struct Customer* ptr)
+{
+    ssize_t readBytes, writeBytes;
+    char readBuffer[1000], writeBuffer[1000], hashedPassword[1000];
+    char newPassword[1000];
+    
+    // Lock the critical section
+    // struct sembuf semOp = {0, -1, SEM_UNDO};
+    // int semopStatus = semop(semIdentifier, &semOp, 1);
+    // if (semopStatus == -1)
+    // {
+    //     perror("Error while locking critical section");
+    //     return false;
+    // }
+
+    writeBytes = write(connFD, PASSWORD_CHANGE_OLD_PASS, strlen(PASSWORD_CHANGE_OLD_PASS));
+    if (writeBytes == -1)
+    {
+        perror("Error writing PASSWORD_CHANGE_OLD_PASS message to client!");
+        //unlock_critical_section(&semOp);
+        return false;
+    }
+
+    bzero(readBuffer, sizeof(readBuffer));
+    readBytes = read(connFD, readBuffer, sizeof(readBuffer));
+    //readBuffer[strcspn(readBuffer, "\n")] = 0;
+
+    if (readBytes == -1)
+    {
+        perror("Error reading old password response from client");
+        //unlock_critical_section(&semOp);
+        return false;
+    }
+    
+    //if (strcmp(crypt(readBuffer, SALT_BAE), ptr.password) == 0)
+    if (strcmp(readBuffer, ptr->password) == 0)
+    {
+        // Password matches with old password
+        writeBytes = write(connFD, PASSWORD_CHANGE_NEW_PASS, strlen(PASSWORD_CHANGE_NEW_PASS));
+        if (writeBytes == -1)
+        {
+            perror("Error writing PASSWORD_CHANGE_NEW_PASS message to client!");
+            //unlock_critical_section(&semOp);
+            return false;
+        }
+        bzero(readBuffer, sizeof(readBuffer));
+        readBytes = read(connFD, readBuffer, sizeof(readBuffer));
+        if (readBytes == -1)
+        {
+            perror("Error reading new password response from client");
+            //unlock_critical_section(&semOp);
+            return false;
+        }
+        
+        //strcpy(newPassword, crypt(readBuffer, SALT_BAE));
+        strcpy(newPassword, readBuffer);
+
+        writeBytes = write(connFD, PASSWORD_CHANGE_NEW_PASS_RE, strlen(PASSWORD_CHANGE_NEW_PASS_RE));
+        if (writeBytes == -1)
+        {
+            perror("Error writing PASSWORD_CHANGE_NEW_PASS_RE message to client!");
+            //unlock_critical_section(&semOp);
+            return false;
+        }
+        bzero(readBuffer, sizeof(readBuffer));
+        readBytes = read(connFD, readBuffer, sizeof(readBuffer));
+        if (readBytes == -1)
+        {
+            perror("Error reading new password reenter response from client");
+            //unlock_critical_section(&semOp);
+            return false;
+        }
+
+        //if (strcmp(crypt(readBuffer, SALT_BAE), newPassword) == 0)
+        if (strcmp(readBuffer, newPassword) == 0)
+        {
+            // New & reentered passwords match
+
+            strcpy(ptr->password, newPassword);
+
+            int customerFileDescriptor = open(CUSTOMER_FILE, O_WRONLY);
+            if (customerFileDescriptor == -1)
+            {
+                perror("Error opening customer file!");
+                //unlock_critical_section(&semOp);
+                return false;
+            }
+
+            off_t offset = lseek(customerFileDescriptor, ptr->id * sizeof(struct Customer), SEEK_SET);
+            if (offset == -1)
+            {
+                perror("Error seeking to the customer record!");
+                //unlock_critical_section(&semOp);
+                return false;
+            }
+
+            struct flock lock = {F_WRLCK, SEEK_SET, offset, sizeof(struct Customer), getpid()};
+            int lockingStatus = fcntl(customerFileDescriptor, F_SETLKW, &lock);
+            if (lockingStatus == -1)
+            {
+                perror("Error obtaining write lock on customer record!");
+                //unlock_critical_section(&semOp);
+                return false;
+            }
+
+            writeBytes = write(customerFileDescriptor, ptr, sizeof(struct Customer));
+            if (writeBytes == -1)
+            {
+                perror("Error storing updated customer password into customer record!");
+                //unlock_critical_section(&semOp);
+                return false;
+            }
+
+            lock.l_type = F_UNLCK;
+            lockingStatus = fcntl(customerFileDescriptor, F_SETLK, &lock);
+
+            close(customerFileDescriptor);
+
+            writeBytes = write(connFD, PASSWORD_CHANGE_SUCCESS, strlen(PASSWORD_CHANGE_SUCCESS));
+            readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
+
+            //unlock_critical_section(&semOp);
+
+            return true;
+        }
+        else
+        {
+            // New & reentered passwords don't match
+            writeBytes = write(connFD, PASSWORD_CHANGE_NEW_PASS_INVALID, strlen(PASSWORD_CHANGE_NEW_PASS_INVALID));
+            readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
+        }
+    }
+    else
+    {
+        // Password doesn't match with old password
+        writeBytes = write(connFD, PASSWORD_CHANGE_OLD_PASS_INVALID, strlen(PASSWORD_CHANGE_OLD_PASS_INVALID));
+        readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
+    }
+
+    //unlock_critical_section(&semOp);
+    return false;
+}
 
 #endif

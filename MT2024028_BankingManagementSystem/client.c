@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -19,7 +20,7 @@ int main()
     if (socketFileDescriptor == -1)
     {
         perror("Error while creating server socket!");
-        _exit(0);
+        exit(0);
     }
 
     serverAddress.sin_family = AF_INET;
@@ -31,7 +32,7 @@ int main()
     {
         perror("Error while connecting to server!");
         close(socketFileDescriptor);
-        _exit(0);
+        exit(0);
     }
 
     connection_handler(socketFileDescriptor);
@@ -77,7 +78,8 @@ void connection_handler(int sockFD)
             printf("%s\n",writeBuffer);
             write(sockFD, writeBuffer, strlen(writeBuffer));//don't remove
         }
-        else if(strchr(readBuffer, '*') != NULL){
+        else if(strchr(readBuffer, '*') != NULL)
+        {
             strcpy(writeBuffer, "User wants to Exit...");
             write(sockFD, writeBuffer, strlen(writeBuffer));
             printf("%sEXITING...\n",writeBuffer);
