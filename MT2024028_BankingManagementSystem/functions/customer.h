@@ -16,6 +16,7 @@
 #include "../record-struct/customer.h"
 #include "../record-struct/transaction.h"
 #include "../record-struct/emp.h"
+#include "../record-struct/loan.h"
 
 #include "./admin-credentials.h"
 #include "./server-constants.h"
@@ -40,6 +41,7 @@ int write_transaction_to_file(int accountNumber, long int oldBalance, long int n
 bool change_customer_password(int connFD, struct Customer* ptr);
 bool unlock_critical_section(struct sembuf *semOp);
 bool lock_critical_section(struct sembuf *semOp);
+bool apply_loan(int connFD);
 
 bool customer_operation_handler(int connFD)
 {
@@ -91,7 +93,7 @@ bool customer_operation_handler(int connFD)
                 //transfer(connFD);
                 break;
             case 6:
-                //apply_loan(connFD);
+                apply_loan(connFD);
                 break;
             case 8:
                 //add_feedback(connFD);
@@ -157,7 +159,12 @@ bool customer_login_handler(int connFD, struct Customer *customer)
     bool userFound = false;
 
     bzero(tempBuffer, sizeof(tempBuffer));
-    strcpy(tempBuffer, readBuffer);
+    strncpy(tempBuffer, readBuffer, sizeof(tempBuffer) - 1);
+    tempBuffer[sizeof(tempBuffer) - 1] = '\0'; // Ensure null-termination
+
+    // bzero(tempBuffer, sizeof(tempBuffer));
+    // strcpy(tempBuffer, readBuffer);
+
     if (strchr(tempBuffer, '-') != NULL)
     {
         strtok(tempBuffer, "-");
@@ -225,16 +232,22 @@ bool customer_login_handler(int connFD, struct Customer *customer)
             return false;
         }
 
-            if (strcmp(readBuffer, customer->password) == 0)
+            if (strcmp(readBuffer, customer->password) == 0 && customer->active == 1)
             {
                 return true;
             }
-            else
+            if(strcmp(readBuffer, customer->password))
             {
                 memset(readBuffer, 0, sizeof(readBuffer));
                 writeBytes = write(connFD, INVALID_PASSWORD, strlen(INVALID_PASSWORD));
                 //read(connFD, readBuffer, sizeof(readBuffer));                
-            }      
+            }
+            if(!(customer->active)){
+                //Customer Inactive
+                memset(readBuffer, 0, sizeof(readBuffer));
+                writeBytes = write(connFD, ACCOUNT_DEACTIVATED, strlen(ACCOUNT_DEACTIVATED));
+                
+            } 
     }
     else
     {
@@ -1173,4 +1186,145 @@ bool change_customer_password(int connFD, struct Customer* ptr)
     return false;
 }
 
+bool apply_loan(int connFD){
+
+    ssize_t readBytes, writeBytes;
+    char readBuffer[1000], writeBuffer[1000];
+    
+    if(loggedInCustomer.active){
+
+        struct Loan newLoan, prevLoan;
+
+        int loanFD = open(LOAN_FILE, O_RDONLY);
+        if (loanFD == -1 && errno == ENOENT)
+        {
+            // Loan file was never created
+            newLoan.loan_id = 0;
+        }
+        else if (loanFD == -1)
+        {
+            perror("Error while opening account file");
+            return false;
+        }
+        else
+        {
+            int offset = lseek(loanFD, -sizeof(struct Loan), SEEK_END);
+            if (offset == -1)
+            {
+                perror("Error seeking to last Account record!");
+                return false;
+            }
+
+        struct flock lock = {F_RDLCK, SEEK_SET, offset, sizeof(struct Loan), getpid()};
+        int lockingStatus = fcntl(loanFD, F_SETLKW, &lock);
+        if (lockingStatus == -1)
+        {
+            perror("Error obtaining read lock on Account record!");
+            return false;
+        }
+
+        readBytes = read(loanFD, &prevLoan, sizeof(struct Loan));
+        if (readBytes == -1)
+        {
+            perror("Error while reading Loan record from file!");
+            return false;
+        }
+
+        lock.l_type = F_UNLCK;
+        fcntl(loanFD, F_SETLK, &lock);
+
+        close(loanFD);
+
+        newLoan.loan_id = prevLoan.loan_id + 1;
+    }
+    sprintf(writeBuffer, "%s", LOAN_REQUESTED_AMOUNT);
+
+    writeBytes = write(connFD, writeBuffer, sizeof(writeBuffer));
+    if (writeBytes == -1)
+    {
+        perror("Error writing LOAN_REQUESTED_AMOUNT message to client!");
+        return false;
+    }
+
+    readBytes = read(connFD, readBuffer, sizeof(readBuffer));
+    if (readBytes == -1)
+    {
+        perror("Error reading loan amount response from client!");
+        return false;
+    }
+    double amount = atoi(readBuffer);
+    if (amount == 0)
+    {
+        // Either client has sent age as 0 (which is invalid) or has entered a non-numeric string
+        memset(writeBuffer, 0, sizeof(writeBuffer));
+        strcpy(writeBuffer, ERRON_INPUT_FOR_NUMBER);
+        writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
+        if (writeBytes == -1)
+        {
+            perror("Error while writing ERRON_INPUT_FOR_NUMBER message to client!");
+            return false;
+        }
+        readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
+        return false;
+    }
+    newLoan.req_loan_amount = amount;
+
+    newLoan.customer_id = loggedInCustomer.id;
+    newLoan.emp_id = -1;
+    newLoan.loan_status = 'S';
+    newLoan.app_loan_amount = 0;
+
+    loanFD = open(LOAN_FILE, O_CREAT | O_APPEND | O_WRONLY, S_IRWXU);
+    if (loanFD == -1)
+    {
+        perror("Error while creating / opening account file!");
+        return false;
+    }
+
+    writeBytes = write(loanFD, &newLoan, sizeof(struct Loan));
+    if (writeBytes == -1)
+    {
+        perror("Error while writing Loan record to file!");
+        return false;
+    }
+    close(loanFD);
+
+    loggedInCustomer.loan_id = newLoan.loan_id;
+
+    int custFD = open(CUSTOMER_FILE, O_WRONLY, S_IRWXU);
+    if (custFD == -1)
+    {
+        perror("Error while creating / opening customer file!");
+        return false;
+    }
+    int offset = lseek(custFD, loggedInCustomer.id*sizeof(struct Customer), SEEK_SET);
+    writeBytes = write(custFD, &loggedInCustomer, sizeof(struct Customer));
+    if (writeBytes == -1)
+    {
+        perror("Error while writing customer record to file!");
+        return false;
+    }
+    close(custFD);
+
+    memset(writeBuffer, 0, sizeof(writeBuffer));
+    sprintf(writeBuffer, "Loan request id %d for amount Rs. %ld submitted successfully!",newLoan.loan_id,newLoan.req_loan_amount);
+    strcat(writeBuffer, "^");
+    
+    writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
+    if (writeBytes == -1)
+    {
+        perror("Error sending loan submission details to the client!");
+        return false;
+    }
+
+    readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
+
+    return newLoan.loan_id;
+    }
+    else
+        write(connFD, ACCOUNT_DEACTIVATED, strlen(ACCOUNT_DEACTIVATED));
+    read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
+    
+    return false;
+}
 #endif

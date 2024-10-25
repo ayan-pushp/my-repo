@@ -35,13 +35,27 @@ struct Employee {
 };
 
 struct Customer {
-    int id;
+    int id; // 0, 1, 2 ....
     char name[25];
-    char gender; // M -> Male, F -> Female, O -> Other
+    char gender; // M- Male, F- Female, O- Other
     int age;
-    char login[30]; // Format: name-id
+    // Login Credentials
+    char login[30]; // Format : name-id (name will the first name)
     char password[30];
-    int account; // Account number of the account the customer owns
+    // Bank data
+    int account; // Account number of the customer
+    int loan_id; //Loan id requested
+    int active; //1-Active, 2-Inactive
+};
+
+struct Loan
+{
+    int loan_id; // 0, 1, 2 ....
+    int customer_id; //Customer id who requested it
+    long int req_loan_amount; //Amount requested for
+    long int app_loan_amount; //Approved loan amount
+    char loan_status; // S- Submitted, P- Pending approval,  A- Approved, R- Rejected
+    int emp_id; // Employee assigned to
 };
 
 void readTransaction(int fd) {
@@ -101,7 +115,8 @@ void readCustomer(int fd) {
 
     printf("\nReading Customers:\n");
     while ((bytesRead = read(fd, &c, sizeof(struct Customer))) > 0) {
-        printf("Customer ID: %d, Name: %s, Gender: %c, Age: %d, Login: %s, Password: %s, Account: %d\n",c.id, c.name, c.gender, c.age,c.login,c.password,c.account);
+              printf("Customer ID: %d, Name: %s, Gender: %c, Age: %d, Login: %s, Password: %s, Account: %d, Loan ID: %d, Active: %d\n",c.id, c.name, c.gender, c.age,c.login,c.password,c.account,c.loan_id,c.active);
+        
     }
 
     if (bytesRead == -1) {
@@ -109,9 +124,22 @@ void readCustomer(int fd) {
     }
 }
 
+void readLoan(int fd) {
+    struct Loan c;
+    ssize_t bytesRead;
+
+    printf("\nReading Loan:\n");
+    while ((bytesRead = read(fd, &c, sizeof(struct Loan))) > 0) {
+      printf("Loan ID: %d, Customer ID: %d, Requested Loan Amount: %ld, Approved Loan Amount: %ld, Employee ID: %d, Loan Status: %c\n",c.loan_id, c.customer_id, c.req_loan_amount, c.app_loan_amount,c.emp_id,c.loan_status);
+    }
+
+    if (bytesRead == -1) {
+        perror("Error reading loan");
+    }
+}
 int main(int argc, char *argv[]) {
-    if (argc < 5) {
-        fprintf(stderr, "Usage: %s <transaction_file> <account_file> <employee_file> <customer_file>\n", argv[0]);
+    if (argc < 6) {
+        fprintf(stderr, "Usage: %s <transaction_file> <account_file> <employee_file> <customer_file> <loan_file>\n", argv[0]);
         return 1;
     }
 
@@ -151,6 +179,15 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     readCustomer(fd);
+    close(fd);
+    
+    //Read Loans
+    fd = open(argv[5], O_RDONLY);
+    if (fd == -1) {
+        perror("Error opening loan file");
+        return 1;
+    }
+    readLoan(fd);
     close(fd);
 
     return 0;

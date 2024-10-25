@@ -433,6 +433,10 @@ int add_customer(int connFD, int newAccountNumber)
 
     newCustomer.account = newAccountNumber;
 
+    newCustomer.loan_id=-1;
+
+    newCustomer.active=1;
+
     strcpy(newCustomer.login, newCustomer.name);
     strcat(newCustomer.login, "-");
     sprintf(writeBuffer, "%d", newCustomer.id);

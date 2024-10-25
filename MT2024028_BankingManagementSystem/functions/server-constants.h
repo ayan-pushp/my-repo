@@ -88,6 +88,9 @@
 #define PASSWORD_CHANGE_NEW_PASS_INVALID "New password and reentered passwords don't match!^"
 #define PASSWORD_CHANGE_SUCCESS "Password successfully changed!^"
 
+#define LOAN_REQUESTED_AMOUNT "Loan Amount needed?"
+#define LOAN_REQUEST_SUBMITTED "Loan request submitted successfully!^"
+
 // EMPLOYEE TEXT
 
 // LOGIN WELCOME
