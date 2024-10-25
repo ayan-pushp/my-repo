@@ -30,7 +30,7 @@
 #define ACCOUNT_ID_DOESNT_EXIST "No account found for this account number!"
 
 #define TRANSACTIONS_NOT_FOUND "No transactions found for this account!^"
-
+#define LOAN_ID_DOESNT_EXIST "No Loan exists for this ID!"
 // ADMIN TEXT
 
 // LOGIN WELCOME
@@ -127,6 +127,8 @@
 #define EMP_MOD_CUSTOMER_SUCCESS "Successfully modified customer!\nRedirecting to main menu...!^"
 #define LOGOUT ", logging you out...!$"
 
+#define EMP_ASK_LOAN "Enter Loan ID to process:"
+#define EMP_ASK_APPROVAL "Enter A to Approve, R to reject"
 //MANAGER
 #define MANAGER_ACT_CUSTOMER "Enter customer id to activate/deactivate"
 #define MANAGER_ACT_CUSTOMER_MENU "Enter 1 to Activate, 2 to Deactivate"
