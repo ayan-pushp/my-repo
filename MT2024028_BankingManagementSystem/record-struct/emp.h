@@ -7,7 +7,7 @@ struct Employee
     char name[25];
     char gender; // M -> Male, F -> Female, O -> Other
     int age;
-    char role; // e->employee, m->manager   
+    char role; // E->employee, M->manager   
     // Login Credentials
     char login[30]; // Format : name-id
     char password[30];

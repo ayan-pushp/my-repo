@@ -110,15 +110,15 @@ int connection_handler(int connectionFileDescriptor)
                 admin_operation_handler(connectionFileDescriptor);
                 home=1;
                 break;
+            case 4:
+                // Manager Handler
+                //Manager is an employee with role M so this case will fall through and will be handled in emp_operation_handler
             case 3:
                 // Employee Handler
                 emp_operation_handler(connectionFileDescriptor);
                 home=1;
                 break;
-            case 4:
-                // Manager Handler
-                //man_operation_handler(connectionFileDescriptor);
-                break;
+            
             default:
                 // Exiting
                 home=0;

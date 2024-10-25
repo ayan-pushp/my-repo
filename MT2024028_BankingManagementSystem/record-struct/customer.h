@@ -13,7 +13,7 @@ struct Customer
     // Bank data
     int account; // Account number of the customer
     int loan_id; //Loan id requested
-    int active; //1-Active, 2-Inactive
+    int active; //1-Active, 0-Inactive
 };
 
 #endif

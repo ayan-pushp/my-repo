@@ -29,8 +29,9 @@ int add_customer(int connFD,  int newAccountNumber);
 bool modify_customer_info(int connFD);
 bool change_emp_password(int connFD, struct Employee *emp);
 //void process_loan(int connFD);
-//void view_assgn_loan(int connFD);
-
+bool view_assgn_loan(int connFD);
+bool assign_loan(int connFd);
+bool act_customer(int connFd);
 
 bool emp_operation_handler(int connFD)
 {
@@ -45,6 +46,8 @@ bool emp_operation_handler(int connFD)
         while (1)
         {
             strcat(writeBuffer, "\n");
+            if(loggedInEmployee.role=='E'){
+                //Employee Functionalities
             strcat(writeBuffer, EMP_MENU);
             writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
             if (writeBytes == -1)
@@ -75,7 +78,8 @@ bool emp_operation_handler(int connFD)
             case 3:
                 //process_loan(connFD);
             case 4:
-                //view_assgn_loan(connFD);
+                view_assgn_loan(connFD);
+                break;
             case 5:
             //Change Password
                 if(!change_emp_password(connFD, &loggedInEmployee)) break;
@@ -90,6 +94,55 @@ bool emp_operation_handler(int connFD)
             default:
                 writeBytes = write(connFD, INVALID_MENU_CHOICE, strlen(INVALID_MENU_CHOICE));
                 read(connFD, readBuffer, sizeof(readBuffer));
+            }
+            }
+            else if(loggedInEmployee.role=='M'){
+
+            strcat(writeBuffer, MANAGER_MENU);
+            writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
+            if (writeBytes == -1)
+            {
+                perror("Error while writing EMP_MENU to client!");
+                return false;
+            }
+            memset(writeBuffer, 0, sizeof(writeBuffer));
+
+            readBytes = read(connFD, readBuffer, sizeof(readBuffer));
+            if (readBytes == -1)
+            {
+                perror("Error while reading client's choice for EMP_MENU");
+                return false;
+            }
+
+            int choice = atoi(readBuffer);
+            switch (choice)
+            {
+            case 1:
+            //Activate/Deactivate Customer 
+                act_customer(connFD);
+                break;
+            case 2:
+            //Assign Loan to Emp
+                assign_loan(connFD);
+                break;
+            case 3:
+            //Review Customer Feedback
+                 break;
+            case 4:
+            //Change Password
+                if(!change_emp_password(connFD, &loggedInEmployee)) break;
+            case 5:
+            //Logout
+                memset(writeBuffer,0,sizeof(writeBuffer));
+                strcpy(writeBuffer,"Bye ");
+                strcat(writeBuffer,loggedInEmployee.name);
+                strcat(writeBuffer,LOGOUT);               
+                writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
+                return false;
+            default:
+                writeBytes = write(connFD, INVALID_MENU_CHOICE, strlen(INVALID_MENU_CHOICE));
+                read(connFD, readBuffer, sizeof(readBuffer));
+            }
             }
         }
     }
@@ -859,6 +912,392 @@ bool change_emp_password(int connFD, struct Employee* ptr)
     }
 
     //unlock_critical_section(&semOp);
+    return false;
+}
+
+bool act_customer(int connFD){
+
+    ssize_t readBytes, writeBytes;
+    char readBuffer[1000], writeBuffer[1000];
+
+    struct Customer customer;
+    int customerID;
+
+    off_t offset;
+    int lockingStatus;
+
+    writeBytes = write(connFD, MANAGER_ACT_CUSTOMER, strlen(MANAGER_ACT_CUSTOMER));
+    if (writeBytes == -1)
+    {
+        perror("Error while writing MANAGER_ACT_CUSTOMER message to client!");
+        return false;
+    }
+    bzero(readBuffer, sizeof(readBuffer));
+    readBytes = read(connFD, readBuffer, sizeof(readBuffer));
+    if (readBytes == -1)
+    {
+        perror("Error while reading customer ID from client!");
+        return false;
+    }
+
+    customerID = atoi(readBuffer);
+
+    int customerFileDescriptor = open(CUSTOMER_FILE, O_RDONLY);
+    if (customerFileDescriptor == -1)
+    {
+        // Customer File doesn't exist
+        memset(writeBuffer, 0, sizeof(writeBuffer));
+        strcpy(writeBuffer, CUSTOMER_ID_DOESNT_EXIST);
+        strcat(writeBuffer, "^");
+        writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
+        if (writeBytes == -1)
+        {
+            perror("Error while writing CUSTOMER_ID_DOESNT_EXIST message to client!");
+            return false;
+        }
+        readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
+        return false;
+    }
+    
+    offset = lseek(customerFileDescriptor, customerID * sizeof(struct Customer), SEEK_SET);
+    if (errno == EINVAL)
+    {
+        // Customer record doesn't exist
+        memset(writeBuffer, 0, sizeof(writeBuffer));
+        strcpy(writeBuffer, CUSTOMER_ID_DOESNT_EXIST);
+        strcat(writeBuffer, "^");
+        writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
+        if (writeBytes == -1)
+        {
+            perror("Error while writing CUSTOMER_ID_DOESNT_EXIST message to client!");
+            return false;
+        }
+        readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
+        return false;
+    }
+    else if (offset == -1)
+    {
+        perror("Error while seeking to required customer record!");
+        return false;
+    }
+
+    struct flock lock = {F_RDLCK, SEEK_SET, offset, sizeof(struct Customer), getpid()};
+
+    // Lock the record to be read
+    lockingStatus = fcntl(customerFileDescriptor, F_SETLKW, &lock);
+    if (lockingStatus == -1)
+    {
+        perror("Couldn't obtain lock on customer record!");
+        return false;
+    }
+
+    readBytes = read(customerFileDescriptor, &customer, sizeof(struct Customer));
+    if (readBytes == -1)
+    {
+        perror("Error while reading customer record from the file!");
+        return false;
+    }
+
+    // Unlock the record
+    lock.l_type = F_UNLCK;
+    fcntl(customerFileDescriptor, F_SETLK, &lock);
+    close(customerFileDescriptor);
+
+    char status[10];
+    strcpy(status,customer.active==1?"ACTIVE":"INACTIVE");
+    sprintf(writeBuffer,"Customer Name: %s\nAccount No: %d\nCustomer Status: %s\n",customer.name,customer.account,status);
+    strcat(writeBuffer,MANAGER_ACT_CUSTOMER_MENU);
+
+    writeBytes = write(connFD, writeBuffer, sizeof(writeBuffer));
+    if (writeBytes == -1)
+    {
+        perror("Error while writing MANAGER_ACT_CUSTOMER_MENU message to client!");
+        return false;
+    }
+    readBytes = read(connFD, readBuffer, sizeof(readBuffer));
+    if (readBytes == -1)
+    {
+        perror("Error while getting customer modification menu choice from client!");
+        return false;
+    }
+
+    int choice = atoi(readBuffer);
+    // if (choice == 0)
+    // { // A non-numeric string was passed to atoi
+    //     memset(writeBuffer, 0, sizeof(writeBuffer));
+    //     strcpy(writeBuffer, ERRON_INPUT_FOR_NUMBER);
+    //     writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
+    //     if (writeBytes == -1)
+    //     {
+    //         perror("Error while writing ERRON_INPUT_FOR_NUMBER message to client!");
+    //         return false;
+    //     }
+    //     readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
+    //     return false;
+    // }
+
+    // bzero(readBuffer, sizeof(readBuffer));
+    memset(writeBuffer,0,sizeof(writeBuffer));
+
+    switch (choice)
+    {
+    case 1:
+        customer.active=1;
+        sprintf(writeBuffer,"%s's account is now activated!\n",customer.name);
+
+        break;
+    case 2:
+        customer.active=0;
+        sprintf(writeBuffer,"%s's account is now deactivated!\n",customer.name);
+
+        break;   
+    default:
+        memset(writeBuffer, 0, sizeof(writeBuffer));
+        strcpy(writeBuffer, INVALID_MENU_CHOICE);
+        writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
+        if (writeBytes == -1)
+        {
+            perror("Error while writing INVALID_MENU_CHOICE message to client!");
+            return false;
+        }
+        readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
+        return false;
+    }
+
+    customerFileDescriptor = open(CUSTOMER_FILE, O_WRONLY);
+    if (customerFileDescriptor == -1)
+    {
+        perror("Error while opening customer file");
+        return false;
+    }
+    offset = lseek(customerFileDescriptor, customerID * sizeof(struct Customer), SEEK_SET);
+    if (offset == -1)
+    {
+        perror("Error while seeking to required customer record!");
+        return false;
+    }
+
+    lock.l_type = F_WRLCK;
+    lock.l_start = offset;
+    lockingStatus = fcntl(customerFileDescriptor, F_SETLKW, &lock);
+    if (lockingStatus == -1)
+    {
+        perror("Error while obtaining write lock on customer record!");
+        return false;
+    }
+
+    writeBytes = write(customerFileDescriptor, &customer, sizeof(struct Customer));
+    if (writeBytes == -1)
+    {
+        perror("Error while writing update customer info into file");
+    }
+
+    lock.l_type = F_UNLCK;
+    fcntl(customerFileDescriptor, F_SETLKW, &lock);
+    close(customerFileDescriptor);
+
+    strcat(writeBuffer,EMP_MOD_CUSTOMER_SUCCESS);
+    writeBytes = write(connFD, writeBuffer, sizeof(writeBuffer));
+    if (writeBytes == -1)
+    {
+        perror("Error while writing EMP_MOD_CUSTOMER_SUCCESS message to client!");
+        return false;
+    }
+    readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
+
+    return true;
+}
+
+bool assign_loan(int connFD){
+    //display unassigned loans
+    //enter emp id to assign loan
+    //check for emp id exists
+    //enter loan id 
+    //check loan id exists and empid=-1
+    //enter empid in loan record
+    //change loan status to pending approval
+
+    ssize_t readBytes, writeBytes, bytesRead;
+    char readBuffer[1000], writeBuffer[10000];
+
+    struct Employee emp;
+    struct Loan loan;
+    int empID,loanID;
+
+    off_t offset;
+    int lockingStatus;
+
+    int loanFD = open(LOAN_FILE, O_RDONLY);
+    if (loanFD == -1)
+        {
+            perror("Error while opening loan file");
+            return false;
+        }
+
+    strcpy(writeBuffer, "Unassigned Loan Details:\n");
+    int f=0;
+    while ((bytesRead = read(loanFD, &loan, sizeof(struct Loan))) > 0) {
+        char buff[1000];
+        if(loan.emp_id==-1) {
+            f=1;
+            sprintf(buff,"Loan ID: %d, Customer ID: %d, Requested Loan Amount: %ld, Approved Loan Amount: %ld, Employee ID: %d, Loan Status: %c\n",loan.loan_id, loan.customer_id, loan.req_loan_amount, loan.app_loan_amount,loan.emp_id,loan.loan_status);
+            strcat(writeBuffer,buff);
+        }
+    }
+    if (bytesRead == -1) {
+        perror("Error reading loan");
+    }
+    close(loanFD);
+    if(f==0){
+        //No Loans unassigned
+        strcat(writeBuffer,"No Unassigned Loans! Redirecting to main menu...^");
+        writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
+        if (writeBytes == -1)
+        {
+            perror("Error while writing MANGER_ASK_EMP message to client!");
+            return false;
+        }
+        read(connFD,readBuffer,sizeof(readBuffer));//Dummy read
+    }
+    else{
+        //Ask for Emp ID
+        strcat(writeBuffer,MANAGER_ASK_EMP);
+        writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
+        if (writeBytes == -1)
+        {
+            perror("Error while writing MANGER_ASK_EMP message to client!");
+            return false;
+        }
+
+        bzero(readBuffer, sizeof(readBuffer));
+        readBytes = read(connFD, readBuffer, sizeof(readBuffer));
+        if (readBytes == -1)
+        {
+            perror("Error while reading employee ID from client!");
+            return false;
+        }
+        empID = atoi(readBuffer);
+
+        //Ask for Loan ID
+        writeBytes = write(connFD, MANAGER_ASK_LOAN, strlen(MANAGER_ASK_LOAN));
+        if (writeBytes == -1)
+        {
+            perror("Error while writing MANGER_ASK_EMP message to client!");
+            return false;
+        }
+
+        bzero(readBuffer, sizeof(readBuffer));
+        readBytes = read(connFD, readBuffer, sizeof(readBuffer));
+        if (readBytes == -1)
+        {
+            perror("Error while reading loan ID from client!");
+            return false;
+        }
+        loanID = atoi(readBuffer);
+
+        //Enter Emp id in loan record
+        int loanFD = open(LOAN_FILE, O_RDONLY, S_IRWXU);
+        if (loanFD == -1)
+        {
+            perror("Error while creating / opening loan file!");
+            return false;
+        }
+        int offset = lseek(loanFD, loanID*sizeof(struct Loan), SEEK_SET);
+        
+        struct flock lock = {F_RDLCK, SEEK_SET, offset, sizeof(struct Loan), getpid()};
+        int lockingStatus = fcntl(loanFD, F_SETLKW, &lock);
+        if (lockingStatus == -1)
+        {
+            perror("Error obtaining read lock on Loan record!");
+            return false;
+        }
+
+        readBytes = read(loanFD, &loan, sizeof(struct Loan));
+        if (readBytes == -1)
+        {
+            perror("Error while reading Loan record from file!");
+            return false;
+        }
+
+        lock.l_type = F_UNLCK;
+        fcntl(loanFD, F_SETLK, &lock);
+        close(loanFD);
+
+        loan.emp_id=empID;
+        loan.loan_status='P';
+
+        loanFD = open(LOAN_FILE, O_WRONLY, S_IRWXU);
+        offset = lseek(loanFD, loanID*sizeof(struct Loan), SEEK_SET);
+        writeBytes = write(loanFD, &loan, sizeof(struct Loan));
+        if (writeBytes == -1)
+        {
+            perror("Error while writing loan record to file!");
+            return false;
+        }
+        close(loanFD);
+
+        memset(writeBuffer, 0, sizeof(writeBuffer));
+        sprintf(writeBuffer, "Loan ID: %d is now assigned to Employee ID:%d\nLoan Status: %c",loan.loan_id,empID,loan.loan_status);
+        strcat(writeBuffer, "^");
+
+        writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
+        if (writeBytes == -1)
+        {
+            perror("Error sending loan assigned details to the client!");
+            return false;
+        }
+
+        readBytes = read(connFD, readBuffer, sizeof(readBuffer)); // Dummy read
+
+        return loan.loan_id;
+
+    }
+    return false;
+}
+
+bool view_assgn_loan(int connFD){
+    ssize_t readBytes, writeBytes, bytesRead;
+    char readBuffer[1000], writeBuffer[10000];
+
+    struct Loan loan;
+    int empID=loggedInEmployee.id;
+
+    int loanFD = open(LOAN_FILE, O_RDONLY);
+    if (loanFD == -1)
+        {
+            perror("Error while opening loan file");
+            return false;
+        }
+
+    strcpy(writeBuffer, "Assigned Loan Details:\n");
+    int f=0;
+    while ((bytesRead = read(loanFD, &loan, sizeof(struct Loan))) > 0) {
+        char buff[1000];
+        if(loan.emp_id==empID) {
+            f=1;
+            sprintf(buff,"Loan ID: %d, Customer ID: %d, Requested Loan Amount: %ld, Approved Loan Amount: %ld, Employee ID: %d, Loan Status: %c\n",loan.loan_id, loan.customer_id, loan.req_loan_amount, loan.app_loan_amount,loan.emp_id,loan.loan_status);
+            strcat(writeBuffer,buff);
+        }
+    }
+    if (bytesRead == -1) {
+        perror("Error reading loan");
+    }
+    close(loanFD);
+
+    if(f==0){
+        //No Loans assigned
+        strcat(writeBuffer,"No Assigned Loans!");
+    }
+
+    strcat(writeBuffer,"Redirecting to main menu...^");
+    writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
+        if (writeBytes == -1)
+        {
+            perror("Error while writing assigned loan details message to client!");
+            return false;
+        }
+        read(connFD,readBuffer,sizeof(readBuffer));//Dummy read
+    
     return false;
 }
 

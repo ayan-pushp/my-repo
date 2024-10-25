@@ -1203,7 +1203,7 @@ bool apply_loan(int connFD){
         }
         else if (loanFD == -1)
         {
-            perror("Error while opening account file");
+            perror("Error while opening loan file");
             return false;
         }
         else
@@ -1219,7 +1219,7 @@ bool apply_loan(int connFD){
         int lockingStatus = fcntl(loanFD, F_SETLKW, &lock);
         if (lockingStatus == -1)
         {
-            perror("Error obtaining read lock on Account record!");
+            perror("Error obtaining read lock on Loan record!");
             return false;
         }
 
@@ -1309,7 +1309,7 @@ bool apply_loan(int connFD){
     memset(writeBuffer, 0, sizeof(writeBuffer));
     sprintf(writeBuffer, "Loan request id %d for amount Rs. %ld submitted successfully!",newLoan.loan_id,newLoan.req_loan_amount);
     strcat(writeBuffer, "^");
-    
+
     writeBytes = write(connFD, writeBuffer, strlen(writeBuffer));
     if (writeBytes == -1)
     {

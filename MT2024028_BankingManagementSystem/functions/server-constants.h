@@ -2,7 +2,7 @@
 #define SERVER_CONSTANTS
 
 
-#define INITIAL_PROMPT "==========================================================\nHello User!\nPlease enter your role\n1. Customer\n2. Admin\n3. Employee\n4. Manager\n\nPress any other number to exit..."
+#define INITIAL_PROMPT "--------------------------------\nHello User!\nPlease enter your role\n1. Customer\n2. Admin\n3. Employee\n4. Manager\n\nPress any other number to exit..."
 
 //COMMON TEXT
 
@@ -94,12 +94,12 @@
 // EMPLOYEE TEXT
 
 // LOGIN WELCOME
-#define EMP_LOGIN_WELCOME "Dear Employee, please enter your credentials:"
+#define EMP_LOGIN_WELCOME "Please enter your login credentials:"
 #define EMP_LOGIN_SUCCESS ", Welcome!\nEnter your choice:"
 
 // EMP MENU
 #define EMP_MENU "1. Add New Customer\n2. Modify Customer Details\n3. Process Loan\n4. View Assigned Loan\n5. Change Password\n6. Logout\nPlease enter your choice"
-
+#define MANAGER_MENU "1. Activate/Deactivate Customer\n2. Assign Loan to Employee\n3. Review Customer Feedback\n4. Change Password\n5. Logout\nPlease enter your choice"
 // ADD CUSTOMER
 #define EMP_ADD_CUSTOMER "Enter the details of the customer\n"
 #define EMP_ADD_CUSTOMER_NAME "Name?"
@@ -126,6 +126,12 @@
 #define EMP_MOD_CUSTOMER_NEW_AGE "New age?"
 #define EMP_MOD_CUSTOMER_SUCCESS "Successfully modified customer!\nRedirecting to main menu...!^"
 #define LOGOUT ", logging you out...!$"
+
+//MANAGER
+#define MANAGER_ACT_CUSTOMER "Enter customer id to activate/deactivate"
+#define MANAGER_ACT_CUSTOMER_MENU "Enter 1 to Activate, 2 to Deactivate"
+#define MANAGER_ASK_EMP "Enter Employee id to assign loan to:"
+#define MANAGER_ASK_LOAN "Enter Loan id to be assigned:"
 
 // DATABASE FILES
 
