@@ -21,6 +21,7 @@ Date: 21st Sep, 2024.
 #include <sys/types.h>
 #include <string.h>
 #include <unistd.h>
+#include <time.h>
 
 int main() {
     // Generate a unique key for the message queue

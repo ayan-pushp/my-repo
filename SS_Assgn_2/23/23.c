@@ -12,38 +12,10 @@ Date: 21st Sep, 2024.
 #include <unistd.h>
 
 int main() {
-    // Get maximum number of open files
-    struct rlimit rl;
-    if (getrlimit(RLIMIT_NOFILE, &rl) == -1) {
-        perror("getrlimit");
-        exit(EXIT_FAILURE);
-    }
-    printf("Maximum number of open files: soft limit = %lu, hard limit = %lu\n", rl.rlim_cur, rl.rlim_max);
-
-    // Get the size of a pipe (circular buffer)
-    // Note: This size is implementation-defined, typically 64KB or 1MB
-    int pipe_fd[2];
-    if (pipe(pipe_fd) == -1) {
-        perror("pipe");
-        exit(EXIT_FAILURE);
-    }
-
-    // Since the size of the pipe is not directly retrievable,
-    // we can create a dummy write to get a sense of how it behaves.
-    // However, this is just to demonstrate the use of a pipe.
-    const char *message = "Testing pipe size.";
-    ssize_t bytes_written = write(pipe_fd[1], message, 17); // Write a message (17 bytes)
-
-    // Close the write end of the pipe
-    close(pipe_fd[1]);
-
-    // Print message for demonstration purpose
-    if (bytes_written > 0) {
-        printf("Wrote %zd bytes to the pipe.\n", bytes_written);
-    }
-
-    // Close the read end of the pipe
-    close(pipe_fd[0]);
+    long PIPE_BUF, OPEN_MAX;
+    PIPE_BUF=pathconf(".",_PC_PIPE_BUF);
+    OPEN_MAX=sysconf(_SC_OPEN_MAX);
+    printf("Pipe Size=%ld\t Max Files=%ld",PIPE_BUF,OPEN_MAX);
 
     return 0;
 }

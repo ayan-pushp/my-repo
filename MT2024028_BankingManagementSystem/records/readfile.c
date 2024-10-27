@@ -21,16 +21,16 @@ struct Account {
     int accountNumber;
     bool active; // 1 for active, 0 for inactive
     long int balance;
-    int transactions[MAX_TRANSACTIONS];
+    int transactions[MAX_TRANSACTIONS];//Last MAX no of transaction
 };
 
 struct Employee {
-    int id;
+    int id;//Employee ID
     char name[25];
     char gender; // M -> Male, F -> Female, O -> Other
     int age;
-    char role; // e -> employee, m -> manager
-    char login[30];
+    char role; // E -> employee, M -> manager
+    char login[30];//name-id
     char password[30];
 };
 
@@ -45,7 +45,7 @@ struct Customer {
     // Bank data
     int account; // Account number of the customer
     int loan_id; //Loan id requested
-    int active; //1-Active, 2-Inactive
+    int active; //1-Active, 0-Inactive
 };
 
 struct Loan

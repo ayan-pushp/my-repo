@@ -47,7 +47,7 @@ int main()
         close(socketFileDescriptor);
         exit(0);
     }
-    printf("Server listening at socket 8080...\n");
+    printf("Server listening at port 8080...\n");
 
     int clientSize;
     while (1)
